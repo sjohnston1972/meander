@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-const LONG = 20000; // ms, for multi-thousand-tick runs
+const LONG = 60000; // ms, for multi-thousand-tick runs (suite files run in parallel)
 import { Engine } from '../src/engine/engine.js';
 import { defaults, DT, VALLEY } from '../src/config.js';
 

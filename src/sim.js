@@ -32,6 +32,7 @@ export function createSim(settings) {
     applySettings(partial) { worker.postMessage({ type: 'settings', partial }); },
     reset(settings) { generation++; worker.postMessage({ type: 'reset', settings, generation }); },
     triggerFlood() { worker.postMessage({ type: 'flood' }); },
+    dropBaseLevel(metres) { worker.postMessage({ type: 'dropBase', metres }); },
     paint(x, y, radius, on) { worker.postMessage({ type: 'paint', x, y, radius, on }); },
   };
 }

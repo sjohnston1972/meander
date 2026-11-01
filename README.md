@@ -9,6 +9,7 @@ Live at **https://meander.clydeford.net** (desktop browsers only).
 - A seeded river migrates using the Howard and Knutson (1984) centreline model, the same idea behind meanderpy: migration follows local curvature plus a fading upstream influence, which is why the bends lean downstream.
 - Neck cutoffs leave oxbow lakes that slowly fill to marsh. Floods raise the water, leave levees and can cut chutes across point bars.
 - Point bars, scroll bars, cut banks, levees, vegetation and hard rock patches all appear on the floodplain.
+- Optional vertical erosion: set an incision rate or drop the base level, and the river cuts down, leaving the old floodplain as terraces whose tall edges hem it in.
 - A grouped control panel changes flow, slope, bank strength, vegetation, floods and speed. Explain mode labels features and says how each one formed.
 - The same seed and settings always give the same river, and a link carries both.
 
@@ -65,7 +66,7 @@ Checked in Chrome on the live site unless noted. "Unit test" means `npm test` co
 
 ## Future work (out of scope for v1)
 
-Braided rivers, terraces from base-level fall, man-made features such as bridges and embankments, mobile and touch support.
+Braided rivers, knickpoints that migrate upstream, man-made features such as bridges and embankments, mobile and touch support.
 
 ## Licence
 

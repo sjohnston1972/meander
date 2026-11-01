@@ -75,13 +75,17 @@ export function createGrid(settings, rng) {
 // the new base so bars, levees and scars keep their relative relief.
 export function rebase(grid, settings) {
   if (grid.slope === settings.valleySlope && grid.bankHeight === settings.bankHeight) return;
-  const { cols, rows, cell, base, height, relief } = grid;
+  // Shift every cell by the change in the reference floodplain at its x, so
+  // terraces and the lower floodplain inside the belt keep their relative relief.
+  const { cols, rows, cell, base, height } = grid;
+  const old = { valleySlope: grid.slope, bankHeight: grid.bankHeight };
   for (let cy = 0; cy < rows; cy++) {
     for (let cx = 0; cx < cols; cx++) {
       const i = cy * cols + cx;
-      const nb = baseLevel((cx + 0.5) * cell, settings) + relief[i];
-      height[i] += nb - base[i];
-      base[i] = nb;
+      const x = (cx + 0.5) * cell;
+      const d = baseLevel(x, settings) - baseLevel(x, old);
+      height[i] += d;
+      base[i] += d;
     }
   }
   grid.slope = settings.valleySlope;
@@ -209,6 +213,9 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
       channel[i] = 1;
       list.push(i);
       chanLevel[i] = lvl;
+      // The floodplain this channel builds sits a bank height above its own water.
+      const localBase = lvl - D + settings.bankHeight;
+      if (localBase < base[i]) base[i] = localBase;
       surface[i] = SURFACE.WATER;
       veg[i] = 0;
       return;

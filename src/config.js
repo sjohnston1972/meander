@@ -20,6 +20,7 @@ export const defaults = {
   channelWidth: 50,        // bank-to-bank width in metres
   channelDepth: 2.5,         // mean channel depth in metres
   valleySlope: 0.0005,     // fall per metre down the valley (0.0005 = 50 cm per km)
+  incisionRate: 0,         // metres per 1000 years the river cuts down (0 = none; leaves terraces when on)
   sedimentSupply: 1,       // how quickly bars and levees build (1 = normal)
 
   // --- Banks ---
@@ -74,6 +75,7 @@ export const RANGES = {
   channelWidth: [20, 150, 1],
   channelDepth: [1, 8, 0.1],
   valleySlope: [0.0001, 0.002, 0.00005],
+  incisionRate: [0, 20, 0.5],
   sedimentSupply: [0.2, 3, 0.1],
   erodibility: [0.1, 3, 0.05],
   bankHeight: [1.5, 8, 0.1],
@@ -125,6 +127,9 @@ export const CENTRELINE = {
   bankNoise: 0.05,         // random lateral wobble per step as a fraction of the migration scale
   minSeparationWidths: 4,  // neck cutoff only between reaches this far apart along the river
   depthBelowBank: 0.5,     // the channel is never deeper than bank height minus this (metres)
+  incisionMaxRate: 0.05,   // m/yr the bed can cut down after a sudden base-level drop
+  baseLevelDrop: 2,        // metres per press of the "Drop base level" button
+  minBankFactor: 0.15,     // erodibility floor for very tall banks (terrace edges)
   endProtection: 6,        // points at each end that never migrate or cut off
   wallMarginWidths: 8,     // erodibility fades to zero this many widths from the valley walls
   outletFadeFraction: 0.12, // fraction of valley length before the outlet where migration fades out
@@ -250,6 +255,10 @@ export const PRESETS = {
     erodibility: 0.5, bankHeight: 4.5, patchiness: 0.8, vegGrowth: 1.4, rootStrength: 0.8,
     cutoffDistance: 0.8, gamma: 3,
   },
+  'Incising upland river': {
+    channelWidth: 45, channelDepth: 2.5, meanDischarge: 90, valleySlope: 0.001, incisionRate: 4,
+    erodibility: 1.5, bankHeight: 3.5, patchiness: 0.5, vegGrowth: 0.8, rootStrength: 0.5, floodFrequency: 5,
+  },
   'Fast-migrating sandy river': {
     channelWidth: 70, channelDepth: 2.5, meanDischarge: 150, valleySlope: 0.0007,
     erodibility: 1.8, bankHeight: 3, patchiness: 0.3, vegGrowth: 0.5, rootStrength: 0.3,
@@ -274,6 +283,8 @@ export const HELP = {
   channelWidth: 'Bank to bank width in metres',
   channelDepth: 'Mean channel depth in metres',
   valleySlope: 'Fall of the valley floor per metre. Shown as metres per kilometre',
+  incisionRate: 'How fast the river cuts down, in metres per 1000 years. The old floodplain is left standing as terraces',
+  dropBase: 'Lower the base level by 2 m now, as if the sea or the trunk river fell. The river cuts down and leaves a terrace',
   sedimentSupply: 'How quickly point bars and levees build',
   erodibility: 'How easily banks erode. 1 is soft lowland soil',
   bankHeight: 'Height of the floodplain above the channel bed in metres',
@@ -348,6 +359,10 @@ export const EXPLANATIONS = {
   riffle: {
     title: 'Riffle',
     text: 'Shallow, faster water over gravel between bends, where the thalweg crosses from one side to the other.',
+  },
+  terrace: {
+    title: 'River terrace',
+    text: 'The old floodplain, left high and dry when the river cut down to a lower level. Its tall edge erodes slowly, so it hems the river in.',
   },
   flood: {
     title: 'Flood',

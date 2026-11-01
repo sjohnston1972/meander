@@ -1,6 +1,6 @@
 // Boot: capability check, worker, renderer, controls, animation loop.
 import * as THREE from 'three';
-import { defaults, CAMERAS, PRESETS, VALLEY, QUALITY, RENDER, FLOODPLAIN } from './config.js';
+import { defaults, CAMERAS, PRESETS, VALLEY, QUALITY, RENDER, FLOODPLAIN, CENTRELINE } from './config.js';
 import { createScene } from './render/scene.js';
 import { createTerrain } from './render/terrain.js';
 import { createWater } from './render/water.js';
@@ -97,6 +97,7 @@ function start() {
     step(years) { sim.step(years); },
     reset,
     flood() { sim.triggerFlood(); },
+    dropBase() { sim.dropBaseLevel(CENTRELINE.baseLevelDrop); toast(`Base level dropped ${CENTRELINE.baseLevelDrop} m`); },
     needsReset(key) {
       pendingReset.add(key);
       controls.showResetNote('Press Reset to apply: ' + [...pendingReset].join(', '));

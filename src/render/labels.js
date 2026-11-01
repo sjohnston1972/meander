@@ -6,7 +6,7 @@ import { VALLEY, RENDER, EXPLANATIONS, SURFACE } from '../config.js';
 const ACCENT = {
   cutbank: RENDER.surfaceColours[SURFACE.EARTH], pointbar: RENDER.surfaceColours[SURFACE.SAND], scrollbar: RENDER.surfaceColours[SURFACE.SAND],
   oxbow: RENDER.lakeColour, marsh: RENDER.marshColour, levee: RENDER.surfaceColours[SURFACE.GRASS], neck: RENDER.surfaceColours[SURFACE.GRASS],
-  helical: RENDER.riffleColour, thalweg: RENDER.poolColour, pool: RENDER.poolColour, riffle: RENDER.riffleColour, flood: RENDER.floodColour,
+  terrace: RENDER.surfaceColours[SURFACE.EARTH], helical: RENDER.riffleColour, thalweg: RENDER.poolColour, pool: RENDER.poolColour, riffle: RENDER.riffleColour, flood: RENDER.floodColour,
 };
 const hex = (n) => '#' + n.toString(16).padStart(6, '0');
 

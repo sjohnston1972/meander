@@ -118,7 +118,8 @@ export function createTerrain() {
     const st = snapshot.settings;
     // Reference floodplain height without the relief noise: low ground is damper, ridges drier.
     const baseCol = new Float32Array(cols);
-    for (let cx = 0; cx < cols; cx++) baseCol[cx] = st.valleySlope * (VALLEY.length - (cx + 0.5) * cell) + st.bankHeight;
+    const incision = st.incision || 0;
+    for (let cx = 0; cx < cols; cx++) baseCol[cx] = st.valleySlope * (VALLEY.length - (cx + 0.5) * cell) + st.bankHeight - incision;
     for (let cy = 0; cy < rows; cy++) {
       const y0 = cy > 0 ? cy - 1 : cy, y1 = cy < rows - 1 ? cy + 1 : cy;
       for (let cx = 0; cx < cols; cx++) {

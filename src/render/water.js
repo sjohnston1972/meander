@@ -227,7 +227,7 @@ export function createWater() {
       const lift = s.bankHeight + 0.3 + 0.6 * f;
       for (let i = 0; i < pos.length; i += 3) {
         const x = pos[i] + VALLEY.length / 2;
-        pos[i + 1] = (s.valleySlope * (VALLEY.length - x) + lift * Math.min(1, f * 1.4) - 0.15) * exaggeration + 0.05;
+        pos[i + 1] = (s.valleySlope * (VALLEY.length - x) - (s.incision || 0) + lift * Math.min(1, f * 1.4) - 0.15) * exaggeration + 0.05;
       }
       floodGeom.attributes.position.needsUpdate = true;
       floodMaterial.opacity = Math.min(0.8, f * 1.1) * opacity;

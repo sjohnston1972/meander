@@ -10,7 +10,7 @@ import {
   migrationRate, migrate, findNeckCutoff, spliceCutoff, findChuteCutoff,
 } from './centreline.js';
 import {
-  createGrid, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth,
+  createGrid, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth, cellIndex,
 } from './floodplain.js';
 
 export class Engine {
@@ -35,6 +35,8 @@ export class Engine {
     this.floodPending = false;
     this.discharge = this.settings.meanDischarge;
     this.yearDischargeAt = -1;
+    this.incision = 0;          // metres the whole water profile has cut down
+    this.incisionTarget = 0;    // extra incision still to do after a sudden base-level drop
     this.rate = new Float64Array(x.length);
     this.curv = new Float64Array(x.length);
     this.level = new Float64Array(x.length);
@@ -54,11 +56,33 @@ export class Engine {
     }
   }
 
-  static helpers = { sampleErodibility, effectiveDepth };
+  // Tall banks (terrace edges) erode more slowly than the river's own banks.
+  // The river's own levees (up to leveeMaxHeight) do not count; only ground
+  // standing higher than that, such as a terrace edge, slows it down.
+  static bankFactor(actual, nominal) {
+    const excess = actual - nominal - FLOODPLAIN.leveeMaxHeight;
+    if (excess <= 0) return 1;
+    return Math.max(CENTRELINE.minBankFactor, nominal / (nominal + excess));
+  }
+
+  static helpers = { sampleErodibility, effectiveDepth, bankFactor: Engine.bankFactor };
 
   get depth() { return effectiveDepth(this.settings); }
 
   triggerFlood() { this.floodPending = true; }
+
+  // Sudden base-level fall: the bed cuts down towards it at a limited rate.
+  dropBaseLevel(metres = CENTRELINE.baseLevelDrop) { this.incisionTarget += metres; }
+
+  // Vertical erosion for one step: steady incision plus any pending drop.
+  updateIncision() {
+    this.incision += (this.settings.incisionRate / 1000) * DT;
+    if (this.incisionTarget > 0) {
+      const cut = Math.min(this.incisionTarget, CENTRELINE.incisionMaxRate * DT);
+      this.incision += cut;
+      this.incisionTarget -= cut;
+    }
+  }
 
   // Paint hard rock (or clear it) in a disc, from the renderer's mouse.
   paint(x, y, radius, on) { paintRock(this.grid, x, y, radius, on); }
@@ -75,7 +99,7 @@ export class Engine {
     const fall = s.valleySlope * VALLEY.length;
     const n = this.x.length;
     const level = new Float64Array(n);
-    for (let i = 0; i < n; i++) level[i] = top - (arc[i] / total) * fall;
+    for (let i = 0; i < n; i++) level[i] = top - (arc[i] / total) * fall - this.incision;
     this.level = level;
   }
 
@@ -101,7 +125,9 @@ export class Engine {
     const side = this.curv[i] > 0 ? 1 : -1;
     const bx = x + (ty / l) * side * W * 0.5, by = y - (tx / l) * side * W * 0.5;
     const ground = sampleErodibility(this.grid, bx, by, s);
-    return wall * exit * ground;
+    // Bank height at the outer bank: the old floodplain stands tall above an incised river.
+    const actualBank = this.grid.height[cellIndex(this.grid, bx, by)] - (this.level[i] - this.depth);
+    return wall * exit * ground * Engine.bankFactor(actualBank, s.bankHeight);
   }
 
   updateDischarge() {
@@ -133,6 +159,7 @@ export class Engine {
     const W = s.channelWidth;
     const ds = this.ds;
     this.updateDischarge();
+    this.updateIncision();
 
     // 1. Curvature.
     const c = curvature(this.x, this.y);
@@ -360,6 +387,21 @@ export class Engine {
         }
       }
     }
+    // Terraces: old floodplain standing well above the river beside the channel.
+    let terraces = 0, lastTerrace = -100;
+    for (let i = prot; i < n - prot && terraces < 3; i += 6) {
+      if (i - lastTerrace < 40) continue;
+      const [nx, ny] = normal(i);
+      for (const side of [1, -1]) {
+        const tx = this.x[i] + nx * side * W * 1.2, ty = this.y[i] + ny * side * W * 1.2;
+        const ci = cellAt(tx, ty);
+        if (g.channel[ci] === 0 && g.height[ci] - (this.level[i] - this.depth) > s.bankHeight * 1.8) {
+          out.push({ type: 'terrace', x: tx, y: ty });
+          terraces++; lastTerrace = i;
+          break;
+        }
+      }
+    }
     if (this.flood > 0) out.push({ type: 'flood', x: this.x[Math.floor(n / 2)], y: this.y[Math.floor(n / 2)], level: this.level[Math.floor(n / 2)] + 1 });
     return out;
   }
@@ -412,7 +454,7 @@ export class Engine {
         surface: Uint8Array.from(g.surface),
         veg: veg8,
       },
-      settings: { channelWidth: W, channelDepth: this.depth, bankHeight: s.bankHeight, valleySlope: s.valleySlope },
+      settings: { channelWidth: W, channelDepth: this.depth, bankHeight: s.bankHeight, valleySlope: s.valleySlope, incision: this.incision },
     };
     this.events = [];
     return snap;

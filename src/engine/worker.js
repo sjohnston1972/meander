@@ -80,6 +80,7 @@ self.onmessage = (e) => {
     }
     case 'speed': yearsPerSecond = m.yearsPerSecond; break;
     case 'flood': engine.triggerFlood(); break;
+    case 'dropBase': engine.dropBaseLevel(m.metres); dirty = true; break;
     case 'paint': engine.paint(m.x, m.y, m.radius, m.on); dirty = true; break;
     default: break;
   }
