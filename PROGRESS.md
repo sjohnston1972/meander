@@ -13,3 +13,6 @@ and after. Steps are in PLAN.md.
 - Vertex colours now vary with height relative to the floodplain (damp hollows and scars darker green, levee crests drier), broad meadow patches from value noise, stronger slope shading, bare-earth faces darkest; EARTH colour toned down to 0x6f5a44.
 - CPU cost (node bench, scripts/bench-terrain.mjs, medium grid): baseline 12.98 ms, after 14.2-15.0 ms (+9 to +16%, under the 20% budget). Swiftshader timings in shoot.mjs are upload-dominated and noisy (40.6 -> 62 ms), so the node bench is the yardstick.
 - Harness now opens the page with ?autoplay=0 so shots are exactly year 900.
+
+## 2026-11-01 16:57 Step 3 done: channel edges
+- Cells touching water take the 3x3 average of neighbouring vertex colours (heights untouched); ribbon overlap 0.12 -> 0.16 W. Bank line in edges-3-bend.png reads smooth at the preset distance. terrain.update node bench 15.2 ms.

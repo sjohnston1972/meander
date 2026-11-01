@@ -33,7 +33,8 @@ for (const [k, c] of Object.entries(palette)) PAL[k] = rgb(c);
 export function createTerrain() {
   let cols = 0, rows = 0, cell = 0;
   let geometry = null, skirtGeometry = null;
-  let jitter = null, meadow = null;
+  let jitter = null, meadow = null, edge = null;
+  const edgeList = [];
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   const skirtMaterial = new THREE.MeshStandardMaterial({ color: 0x6b5a45, roughness: 1 });
   const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
@@ -49,6 +50,7 @@ export function createTerrain() {
     const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3);
     jitter = new Float32Array(n);
     meadow = new Float32Array(n);
+    edge = new Float32Array(n * 3);
     for (let cy = 0; cy < rows; cy++) for (let cx = 0; cx < cols; cx++) {
       const i = cy * cols + cx;
       meadow[i] = patchNoise(cx, cy, cols / 14) * 0.6 + patchNoise(cx, cy, cols / 60) * 0.4;
@@ -165,6 +167,25 @@ export function createTerrain() {
         col[i * 3] = r * j; col[i * 3 + 1] = g * j; col[i * 3 + 2] = b * j;
       }
     }
+    // Soften the grid-stepped bank line: cells touching water take the 3x3
+    // average of their neighbours' colours (colour only; heights stay put).
+    const W = SURFACE.WATER;
+    for (let cy = 1; cy < rows - 1; cy++) {
+      for (let cx = 1; cx < cols - 1; cx++) {
+        const i = cy * cols + cx;
+        if (surface[i] === W) continue;
+        if (surface[i - 1] !== W && surface[i + 1] !== W && surface[i - cols] !== W && surface[i + cols] !== W) continue;
+        let r = 0, g = 0, b = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const k = (i + dy * cols + dx) * 3;
+          r += col[k]; g += col[k + 1]; b += col[k + 2];
+        }
+        edge[i * 3] = r / 9; edge[i * 3 + 1] = g / 9; edge[i * 3 + 2] = b / 9;
+        edgeList.push(i);
+      }
+    }
+    for (const i of edgeList) { col[i * 3] = edge[i * 3]; col[i * 3 + 1] = edge[i * 3 + 1]; col[i * 3 + 2] = edge[i * 3 + 2]; }
+    edgeList.length = 0;
     geometry.attributes.position.needsUpdate = true;
     geometry.attributes.normal.needsUpdate = true;
     geometry.attributes.color.needsUpdate = true;

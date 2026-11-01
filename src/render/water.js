@@ -4,7 +4,7 @@ import { VALLEY, RENDER, FLOODPLAIN } from '../config.js';
 
 const ACROSS = 7;          // vertices across the ribbon
 const MAX_POINTS = 6000;   // ribbon capacity (river or all oxbows together)
-const EDGE_OVERLAP = 0.12; // ribbon extends this fraction of W past the bank to hide the terrain seam
+const EDGE_OVERLAP = 0.16; // ribbon extends this fraction of W past the bank to hide the terrain seam
 
 const poolColour = new THREE.Color(RENDER.poolColour);
 const riffleColour = new THREE.Color(RENDER.riffleColour);
