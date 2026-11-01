@@ -15,7 +15,7 @@ export function createScene(canvas, settings) {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x9fc5e8);
-  scene.fog = new THREE.FogExp2(0xbfd6e8, 0.00018);
+  scene.fog = new THREE.FogExp2(0xbfd6e8, 0.00007);
 
   const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 20000);
   camera.position.set(...CAMERAS.overview.pos);
@@ -79,7 +79,7 @@ export function createScene(canvas, settings) {
   setTimeOfDay(settings.timeOfDay);
 
   function setFog(amount) {
-    scene.fog.density = 0.00004 + amount * 0.0004;
+    scene.fog.density = 0.00001 + amount * 0.00012;
   }
   setFog(settings.fog);
 

@@ -23,16 +23,16 @@
       #desktop-only .card { max-width: 32rem; }
       #desktop-only h1 { font-weight: 600; margin: 0 0 0.5rem; }
       #desktop-only p { color: var(--muted); line-height: 1.5; }
-      #hud { position: fixed; left: 16px; top: 14px; pointer-events: none; z-index: 5; }
+      #hud { position: fixed; left: 16px; top: 14px; pointer-events: none; z-index: 5; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
       #hud h1 { margin: 0; font-size: 1.1rem; font-weight: 600; letter-spacing: 0.02em; }
-      #hud .year { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.95rem; margin-top: 2px; }
+      #hud .year { font-variant-numeric: tabular-nums; color: #d9e4e8; font-size: 0.95rem; margin-top: 2px; }
       #hud .flood { color: #e0b86a; font-size: 0.85rem; margin-top: 2px; min-height: 1em; }
-      #toasts { position: fixed; left: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 6px; z-index: 6; pointer-events: none; }
+      #toasts { position: fixed; left: 56px; bottom: 16px; display: flex; flex-direction: column; gap: 6px; z-index: 6; pointer-events: none; }
       .toast { background: var(--panel); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 12px;
         font-size: 0.9rem; opacity: 0; transform: translateY(6px); transition: opacity 0.25s, transform 0.25s; }
       .toast.show { opacity: 1; transform: none; }
       #labels { position: fixed; inset: 0; pointer-events: none; z-index: 4; }
-      .label { pointer-events: auto; cursor: pointer; background: var(--panel); border: 1px solid rgba(255,255,255,0.12);
+      .label { position: absolute; pointer-events: auto; cursor: pointer; background: var(--panel); border: 1px solid rgba(255,255,255,0.12);
         border-radius: 999px; padding: 3px 10px; font-size: 0.8rem; white-space: nowrap; color: var(--text);
         transform: translate(-50%, -140%); }
       .label:hover { border-color: var(--accent); }

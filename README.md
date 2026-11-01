@@ -26,6 +26,10 @@ npm run deploy     # build and deploy to Cloudflare
 
 `debug.html` shows the 2D engine on its own, which is handy when tuning the model.
 
+### Analytics (optional)
+
+Visitor counting uses cookie-free Cloudflare Web Analytics. Create a Web Analytics site for `meander.clydeford.net` in the Cloudflare dashboard (Analytics & Logs, Web Analytics, Add a site), copy its token, and put `VITE_CF_BEACON_TOKEN=<token>` in `.env` before `npm run deploy`. Without the token no beacon is included.
+
 ## Layout
 
 ```

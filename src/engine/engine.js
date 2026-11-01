@@ -1,7 +1,9 @@
 // The simulation engine. Owns the river centreline, the oxbows and the
 // floodplain grid, advances them one fixed time step per tick(), and hands out
 // snapshots for the renderer. Pure JavaScript; never touches three.js.
-import { VALLEY, DT, CENTRELINE, FLOODS, FLOODPLAIN, THALWEG } from '../config.js';
+import { VALLEY, DT, CENTRELINE, FLOODS, FLOODPLAIN, THALWEG, RENDER, SURFACE } from '../config.js';
+
+const RENDER_FEATURE_TICKS = RENDER.featureEveryTicks;
 import { createRandom } from './random.js';
 import {
   curvature, resample, smooth, initialCentreline, arcLength,
@@ -37,6 +39,7 @@ export class Engine {
     this.level = new Float64Array(x.length);
     this.grid = createGrid(this.settings, this.rng);
     this.landDt = 0;
+    this.features = [];
     this.computeLevels();
     this.stamp();
   }
@@ -176,6 +179,8 @@ export class Engine {
       this.landDt = 0;
     }
 
+    if (this.tickCount % RENDER_FEATURE_TICKS === 0) this.features = this.findFeatures();
+
     // 6. History for trails.
     if (this.year - this.lastHistoryYear >= CENTRELINE.trailInterval - 1e-9) {
       this.history.push({ year: this.year, x: Float32Array.from(this.x), y: Float32Array.from(this.y) });
@@ -270,6 +275,82 @@ export class Engine {
     }
   }
 
+  // Explain-mode features: where the labelled things are right now.
+  findFeatures() {
+    const s = this.settings;
+    const W = s.channelWidth;
+    const n = this.x.length;
+    const c = this.curv.length === n ? this.curv : curvature(this.x, this.y);
+    const g = this.grid;
+    const out = [];
+    const normal = (i) => {
+      const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
+      const dx = this.x[i1] - this.x[i0], dy = this.y[i1] - this.y[i0];
+      const l = Math.hypot(dx, dy) || 1;
+      return [dy / l, -dx / l]; // right-hand normal
+    };
+    const cellAt = (x, y) => {
+      const cx = Math.min(g.cols - 1, Math.max(0, Math.floor(x / g.cell)));
+      const cy = Math.min(g.rows - 1, Math.max(0, Math.floor(y / g.cell)));
+      return cy * g.cols + cx;
+    };
+    const minCurv = 0.35 / W;
+    const prot = CENTRELINE.endProtection;
+    let lastApex = -100, apexCount = 0, lastInflection = -100;
+    for (let i = prot + 1; i < n - prot - 1; i++) {
+      const a = Math.abs(c[i]);
+      if (a > minCurv && a >= Math.abs(c[i - 1]) && a > Math.abs(c[i + 1]) && i - lastApex > 8) {
+        lastApex = i;
+        apexCount++;
+        const [nx, ny] = normal(i);
+        const side = c[i] > 0 ? 1 : -1;
+        const x = this.x[i], y = this.y[i];
+        out.push({ type: 'cutbank', x: x + nx * side * W * 0.65, y: y + ny * side * W * 0.65 });
+        out.push({ type: 'pointbar', x: x - nx * side * W * 0.75, y: y - ny * side * W * 0.75 });
+        out.push({ type: 'pool', x, y, level: this.level[i] });
+        if (apexCount % 3 === 2) out.push({ type: 'helical', x: x + nx * side * W * 0.15, y: y + ny * side * W * 0.15, level: this.level[i] });
+        const sx = x - nx * side * W * 2.2, sy = y - ny * side * W * 2.2;
+        const ci = cellAt(sx, sy);
+        if (g.channel[ci] === 0 && g.height[ci] < g.base[ci] - 0.15) out.push({ type: 'scrollbar', x: sx, y: sy });
+      }
+      if (c[i - 1] * c[i + 1] < 0 && i - lastInflection > 20 && i - lastApex > 4) {
+        lastInflection = i;
+        if (out.filter((f) => f.type === 'riffle').length < 4) out.push({ type: 'riffle', x: this.x[i], y: this.y[i], level: this.level[i] });
+      }
+    }
+    // Meander necks: reaches close to joining.
+    const minSep = Math.round((CENTRELINE.minSeparationWidths * W) / this.ds);
+    const neck = findNeckCutoff(this.x, this.y, minSep, 2.5 * W, prot);
+    if (neck) out.push({ type: 'neck', x: (this.x[neck.i] + this.x[neck.j]) / 2, y: (this.y[neck.i] + this.y[neck.j]) / 2 });
+    // Oxbows: label at the point of the loop furthest from its chord.
+    for (const o of this.oxbows) {
+      const ax = o.x[0], ay = o.y[0], bx = o.x[o.x.length - 1], by = o.y[o.y.length - 1];
+      let best = 0, bestD = -1;
+      for (let p = 0; p < o.x.length; p++) {
+        const d = Math.abs((bx - ax) * (ay - o.y[p]) - (ax - o.x[p]) * (by - ay));
+        if (d > bestD) { bestD = d; best = p; }
+      }
+      out.push({ type: o.depth > FLOODPLAIN.oxbowMarshDepth ? 'oxbow' : 'marsh', x: o.x[best], y: o.y[best], level: o.level });
+    }
+    // Levees: banks that stand above the floodplain after floods.
+    let levees = 0, lastLevee = -100;
+    for (let i = prot; i < n - prot && levees < 3; i += 6) {
+      if (i - lastLevee < 50) continue;
+      const [nx, ny] = normal(i);
+      for (const side of [1, -1]) {
+        const lx = this.x[i] + nx * side * W * 0.85, ly = this.y[i] + ny * side * W * 0.85;
+        const ci = cellAt(lx, ly);
+        if (g.channel[ci] === 0 && g.height[ci] > g.base[ci] + 0.35) {
+          out.push({ type: 'levee', x: lx, y: ly });
+          levees++; lastLevee = i;
+          break;
+        }
+      }
+    }
+    if (this.flood > 0) out.push({ type: 'flood', x: this.x[Math.floor(n / 2)], y: this.y[Math.floor(n / 2)], level: this.level[Math.floor(n / 2)] + 1 });
+    return out;
+  }
+
   // History trails for the configured ages.
   trails() {
     return CENTRELINE.trailAges.map((age) => {
@@ -311,6 +392,7 @@ export class Engine {
       oxbows: this.oxbows.map((o) => ({ x: o.x, y: o.y, age: o.age, depth: o.depth, width: o.width, cx: o.cx, cy: o.cy, level: o.level })),
       events: this.events,
       trails: this.trails(),
+      features: this.features,
       grid: {
         cols: g.cols, rows: g.rows, cell: g.cell,
         height: Float32Array.from(g.height),

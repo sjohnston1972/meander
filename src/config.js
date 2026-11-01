@@ -144,7 +144,7 @@ export const THALWEG = {
 
 // --- Floods and banks ---
 export const FLOODS = {
-  duration: 1.0,           // years a flood lasts
+  duration: 2.0,           // years a flood lasts in the model
   dischargeVariation: 0.25, // lognormal sigma of year-to-year discharge
   floodMigrationBoost: 1,  // migration multiplier during a flood is 1 + boost·(size−1)·0.5
   collapseRateThreshold: 6, // m/yr migration above which a bank may collapse
@@ -168,13 +168,22 @@ export const RENDER = {
     2: 0x7d5a3c,           // EARTH (cut bank)
     3: 0x4f7a4e,           // WETLAND
     4: 0x6e6a66,           // ROCK
-    5: 0x3a6f80,           // WATER (channel bed)
+    5: 0x2b4f5a,           // WATER (channel and lake bed, seen through the water)
     6: 0x6f8a4a,           // MARSH
   },
   treeColour: 0x2f5d2a,
   trunkColour: 0x5a4030,
   grassColour: 0x7fae4f,
   maxLabels: 12,           // Explain mode labels shown at once
+  particleSize: 3.2,       // world units, helical flow particle sprite size
+  particleSpeed: 25,       // metres per real second the particles travel downstream (visual)
+  helixRate: 3.0,          // radians per second of corkscrew at a full bend
+  terrainHz: { low: 15, medium: 10, high: 4 }, // terrain mesh rebuilds per second by quality
+  vegetationHz: 2,         // tree and grass placement refreshes per second
+  featureEveryTicks: 8,    // engine recomputes Explain-mode features every N steps
+  floodRiseFraction: 0.9,  // flood water reaches this fraction of the bank height above normal level
+  floodRiseSeconds: 0.4,   // real seconds for flood water to rise on screen
+  floodFallSeconds: 3.0,   // real seconds for flood water to drain on screen (so fast runs still show it)
   cameraMinDistance: 40,
   cameraMaxDistance: 4500,
   cameraMaxPolar: 1.48,    // radians, keeps the camera above the ground
@@ -183,10 +192,10 @@ export const RENDER = {
 
 // --- Camera presets (positions in renderer space: x downstream, z across, y up) ---
 export const CAMERAS = {
-  overview:  { pos: [-1200, 1400, 2400], target: [0, 0, 0] },
-  oblique:   { pos: [-2200, 260, 900],   target: [0, 0, 0] },
-  bend:      { pos: [200, 220, 520],     target: [0, 0, 0] },
-  topdown:   { pos: [0, 3200, 1],        target: [0, 0, 0] },
+  overview:  { pos: [-600, 2600, 3400], target: [0, 0, 0] },
+  oblique:   { pos: [-3600, 320, 1500], target: [-600, 0, 0] },
+  bend:      { pos: [-300, 260, 700],   target: [-300, 0, 0] },
+  topdown:   { pos: [0, 4200, 1],       target: [0, 0, 0] },
 };
 
 export const PRESETS = {
