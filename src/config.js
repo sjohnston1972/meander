@@ -102,19 +102,27 @@ export const CENTRELINE = {
 export const QUALITY = {
   low:    { cols: 256, rows: 128, shadowMap: 1024, trees: 3000,  grass: 6000,  particles: 1500 },
   medium: { cols: 512, rows: 256, shadowMap: 2048, trees: 8000,  grass: 16000, particles: 3000 },
-  high:   { cols: 768, rows: 384, shadowMap: 4096, trees: 16000, grass: 32000, particles: 5000 },
+  high:   { cols: 1024, rows: 512, shadowMap: 4096, trees: 16000, grass: 32000, particles: 5000 },
 };
 
 export const SURFACE = { GRASS: 0, SAND: 1, EARTH: 2, WETLAND: 3, ROCK: 4, WATER: 5, MARSH: 6 };
 
 export const FLOODPLAIN = {
   baseNoise: 0.4,          // metres of gentle random relief on the initial floodplain
-  barHeightFraction: 0.55, // point bar top as a fraction of bank height above the bed
+  reliefScale: 300,        // metres, size of the initial relief blobs
+  barAboveWater: 0.3,      // metres a fresh point bar stands above the water surface
   scrollAmplitude: 0.35,   // metres, height of scroll bar ridges
-  scrollPeriod: 12,        // years between scroll ridges
+  scrollPeriod: 15,        // years between scroll ridges
+  innerRampWidths: 0.5,    // inner bank slopes down to the water over this many channel widths
+  cutBankBandWidths: 0.3,  // outer bank cells within this band show bare earth when eroding fast
+  edgeDepth: 0.2,          // metres of water at the very edge of the channel
+  aggradeRate: 0.012,      // m/yr that low ground (bars, scars) rises back towards floodplain level
+  leveeMaxHeight: 1.5,     // metres a levee can stand above the floodplain
+  landEveryTicks: 4,       // vegetation and aggradation run every N engine steps
   leveeWidthWidths: 1.0,   // levee band width in channel widths from the bank
   leveeRate: 0.08,         // metres per flood-year added at the levee crest (× sediment supply)
   overbankRate: 0.004,     // metres per flood-year added to the far floodplain
+  overbankMax: 1.0,        // metres of silt the far floodplain can gain above its base
   cutBankRate: 2,          // m/yr migration above which the outer bank shows bare earth
   oxbowInfillYears: 150,   // years for an oxbow to fill to marsh at infillRate 1
   oxbowMarshDepth: 0.6,    // metres of water below which an oxbow reads as marsh
@@ -125,6 +133,13 @@ export const FLOODPLAIN = {
   rockRadiusWidths: 2.5,   // radius of each rock patch, in channel widths
   rockErodibility: 0.03,   // erodibility multiplier inside rock
   noiseScaleWidths: 6,     // size of erodibility noise blobs in channel widths
+};
+
+// --- Thalweg and pools (channel cross-section shape) ---
+export const THALWEG = {
+  poolFactor: 0.8,         // pools at bends are up to this fraction deeper than the mean depth
+  shiftFraction: 0.3,      // thalweg shifts this fraction of the half-width towards the outer bank
+  curvatureScale: 4,       // curvature × width × this saturates the pool and shift effects
 };
 
 // --- Floods and banks ---

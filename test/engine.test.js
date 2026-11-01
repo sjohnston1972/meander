@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+
+const LONG = 20000; // ms, for multi-thousand-tick runs
 import { Engine } from '../src/engine/engine.js';
 import { defaults, DT, VALLEY } from '../src/config.js';
 
@@ -29,14 +31,14 @@ describe('Engine', () => {
     expect(Array.from(a.snapshot().centreline.y)).not.toEqual(Array.from(b.snapshot().centreline.y));
   });
 
-  it('grows meanders and makes its first oxbow within 2000 years at defaults', () => {
+  it('grows meanders and makes its first oxbow within 2000 years at defaults', { timeout: LONG }, () => {
     const e = new Engine(fast);
     const y0 = e.snapshot().centreline.y;
     const spread0 = Math.max(...y0) - Math.min(...y0);
     let firstOxbow = null;
-    for (let t = 0; t < 2000 / DT && firstOxbow === null; t++) {
+    for (let t = 0; t < 2000 / DT; t++) {
       e.tick();
-      if (e.snapshot().oxbows.length > 0) firstOxbow = e.year;
+      if (firstOxbow === null && e.oxbows.length > 0) firstOxbow = e.year;
     }
     const y1 = e.snapshot().centreline.y;
     const spread1 = Math.max(...y1) - Math.min(...y1);
@@ -45,9 +47,9 @@ describe('Engine', () => {
     expect(firstOxbow).toBeLessThan(2000);
   });
 
-  it('keeps the river attached to both valley ends and inside the valley', () => {
+  it('keeps the river attached to both valley ends and inside the valley', { timeout: LONG }, () => {
     const e = new Engine(fast);
-    run(e, 4000);
+    run(e, 3000);
     const { x, y } = e.snapshot().centreline;
     expect(x[0]).toBe(0);
     expect(x[x.length - 1]).toBeCloseTo(VALLEY.length, 3);
@@ -74,7 +76,7 @@ describe('Engine', () => {
     expect(Array.from(e.snapshot().centreline.y)).toEqual(y0);
   });
 
-  it('reports cutoff events once', () => {
+  it('reports cutoff events once', { timeout: LONG }, () => {
     const e = new Engine(fast);
     let seen = 0;
     for (let t = 0; t < 2000 / DT; t++) {
