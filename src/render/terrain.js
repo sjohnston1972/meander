@@ -127,7 +127,7 @@ export function createTerrain() {
         const x0 = cx > 0 ? cx - 1 : cx, x1 = cx < cols - 1 ? cx + 1 : cx;
         const dhx = (height[cy * cols + x1] - height[cy * cols + x0]) * inv * (x1 - x0 === 2 ? 1 : 2);
         const dhz = (height[y1 * cols + cx] - height[y0 * cols + cx]) * inv * (y1 - y0 === 2 ? 1 : 2);
-        const len = Math.hypot(dhx, 1, dhz);
+        const len = Math.sqrt(dhx * dhx + 1 + dhz * dhz);
         nor[i * 3] = -dhx / len; nor[i * 3 + 1] = 1 / len; nor[i * 3 + 2] = -dhz / len;
 
         const s = surface[i];

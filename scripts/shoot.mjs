@@ -30,6 +30,13 @@ async function waitFor(url, ms = 20000) {
 
 await run('npx', ['vite', 'build']);
 mkdirSync('docs/looks', { recursive: true });
+// A previous run's preview server may still be shutting down: wait for the port to be free.
+for (let i = 0; i < 40; i++) {
+  let busy = false;
+  try { await fetch(`http://localhost:${PORT}/`); busy = true; } catch {}
+  if (!busy) break;
+  await new Promise((r) => setTimeout(r, 500));
+}
 const server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { shell: true, stdio: 'ignore' });
 let exitCode = 0;
 try {
