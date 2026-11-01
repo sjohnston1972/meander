@@ -179,10 +179,11 @@ export function createWater() {
     if (f > 0) {
       const s = snapshot.settings;
       const pos = floodGeom.attributes.position.array;
-      const lift = s.channelDepth + (s.bankHeight - s.channelDepth) * 0.9 + 0.5 * f;
+      // Water surface relative to the channel bed: over the bank top at the peak, levees stay dry.
+      const lift = s.bankHeight + 0.3 + 0.6 * f;
       for (let i = 0; i < pos.length; i += 3) {
         const x = pos[i] + VALLEY.length / 2;
-        pos[i + 1] = (s.valleySlope * (VALLEY.length - x) + lift * Math.min(1, f * 1.4)) * exaggeration + 0.05;
+        pos[i + 1] = (s.valleySlope * (VALLEY.length - x) + lift * Math.min(1, f * 1.4) - 0.15) * exaggeration + 0.05;
       }
       floodGeom.attributes.position.needsUpdate = true;
       floodMaterial.opacity = Math.min(0.8, f * 1.1) * opacity;

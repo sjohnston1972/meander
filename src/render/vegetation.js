@@ -12,6 +12,17 @@ function hash(i, salt) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
+// Cheap smooth value noise on the cell grid, so woodland comes in clumps.
+function clumpNoise(cx, cy, scale) {
+  const x = cx / scale, y = cy / scale;
+  const x0 = Math.floor(x), y0 = Math.floor(y);
+  const fx = x - x0, fy = y - y0;
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  const h = (i, j) => hash(i * 7919 + j * 104729, 99);
+  const a = h(x0, y0), b = h(x0 + 1, y0), c = h(x0, y0 + 1), d = h(x0 + 1, y0 + 1);
+  return (a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy;
+}
+
 function treeGeometry() {
   const trunk = new THREE.CylinderGeometry(0.35, 0.5, 3, 5);
   trunk.translate(0, 1.5, 0);
@@ -59,7 +70,7 @@ export function createVegetation(maxTrees, maxGrass) {
     const { cols, rows, cell, height, surface, veg } = g;
     const cellsPerTree = Math.max(1, Math.floor((cols * rows) / (maxTrees * 1.5)));
     let t = 0, gr = 0;
-    const treeProb = 0.35 * density;
+    const treeProb = 0.7 * density;
     const grassProb = 0.5 * density;
     for (let i = 0; i < cols * rows; i += 1) {
       const s = surface[i];
@@ -70,7 +81,9 @@ export function createVegetation(maxTrees, maxGrass) {
       const wx = (cx + 0.5 + (hash(i, 2) - 0.5)) * cell - VALLEY.length / 2;
       const wz = (cy + 0.5 + (hash(i, 3) - 0.5)) * cell - VALLEY.width / 2;
       const wy = height[i] * exaggeration;
-      if (t < maxTrees && i % cellsPerTree === 0 && v > FLOODPLAIN.vegTreeThreshold && h1 < (v - FLOODPLAIN.vegTreeThreshold) * 2.5 * treeProb) {
+      const clump = clumpNoise(cx, cy, cols / 18);
+      const woodland = Math.max(0, (clump - 0.42) * 2.4); // 0 in open grassland, ~1 in the heart of a wood
+      if (t < maxTrees && i % cellsPerTree === 0 && v > FLOODPLAIN.vegTreeThreshold && h1 < (v - FLOODPLAIN.vegTreeThreshold) * 2.5 * treeProb * (0.08 + woodland)) {
         const sc = 0.8 + hash(i, 4) * 0.7;
         dummy.position.set(wx, wy, wz);
         dummy.scale.set(sc, sc * (0.9 + hash(i, 5) * 0.4), sc);
