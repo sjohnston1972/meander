@@ -8,7 +8,7 @@ export function createScene(canvas, settings) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -72,7 +72,7 @@ export function createScene(canvas, settings) {
   sky.frustumCulled = false;
   scene.add(sky);
   const horizonDay = new THREE.Color(0xc9dcec), zenithDay = new THREE.Color(0x4a8bcc);
-  const horizonDusk = new THREE.Color(0xf0b57a), zenithDusk = new THREE.Color(0x5f6f9f);
+  const horizonDusk = new THREE.Color(0xf2a866), zenithDusk = new THREE.Color(0x6b7fb0);
   const glowDay = new THREE.Color(0xf7f3e6), glowDusk = new THREE.Color(0xffc27a);
   const hcol = new THREE.Color(), zcol = new THREE.Color(), gcol = new THREE.Color(), vcol = new THREE.Color();
   const sunDir = new THREE.Vector3();
@@ -90,7 +90,7 @@ export function createScene(canvas, settings) {
       vcol.copy(hcol).lerp(zcol, k);
       // Warm glow around the sun, strongest when the sun is low.
       const toward = Math.max(0, v.dot(sunDir));
-      const glow = Math.pow(toward, 8) * (0.25 + 0.75 * low) * (1 - k * 0.6);
+      const glow = Math.pow(toward, 5) * (0.2 + 0.9 * low) * (1 - k * 0.5);
       vcol.lerp(gcol, Math.min(1, glow));
       // Below the horizon fade to the fog colour so the ground plane edge is hidden.
       if (v.y < 0) vcol.copy(hcol).lerp(scene.fog.color, Math.min(1, -v.y * 4));
@@ -100,8 +100,8 @@ export function createScene(canvas, settings) {
   }
 
   const skyColours = { day: new THREE.Color(0xd6e6f2), dusk: new THREE.Color(0xf0b57a) };
-  const fogColours = { day: new THREE.Color(0xd3e0ea), dusk: new THREE.Color(0xe9c39c) };
-  const sunColours = { day: new THREE.Color(0xfff2dc), dusk: new THREE.Color(0xffb070) };
+  const fogColours = { day: new THREE.Color(0xd3e0ea), dusk: new THREE.Color(0xe8b98c) };
+  const sunColours = { day: new THREE.Color(0xfff2dc), dusk: new THREE.Color(0xffa552) };
 
   function setTimeOfDay(hour) {
     // 6 = sunrise in the east (upstream), 12 = overhead-ish, 18 = sunset in the west.
@@ -113,8 +113,9 @@ export function createScene(canvas, settings) {
     sun.target.position.set(0, 0, 0);
     const low = 1 - Math.min(1, Math.sin(Math.PI * t) * 1.6); // 1 near sunrise/sunset
     sun.color.copy(sunColours.day).lerp(sunColours.dusk, low);
-    sun.intensity = 1.2 + 1.4 * Math.sin(Math.PI * t);
-    hemi.intensity = 0.5 + 0.5 * Math.sin(Math.PI * t);
+    sun.intensity = 1.5 + 1.1 * Math.sin(Math.PI * t);
+    hemi.intensity = 0.55 + 0.45 * Math.sin(Math.PI * t);
+    hemi.color.copy(skyColours.day).lerp(skyColours.dusk, low * 0.6);
     scene.background.copy(skyColours.day).lerp(skyColours.dusk, low * 0.9);
     scene.fog.color.copy(fogColours.day).lerp(fogColours.dusk, low * 0.9);
     paintSky(low);

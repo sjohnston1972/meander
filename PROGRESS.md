@@ -22,3 +22,7 @@ and after. Steps are in PLAN.md.
 
 ## 2026-11-01 17:20 Step 5 done: water
 - roughness 0.12 (lakes 0.10, stiller normal map), pool colour 0x153f52, lighter rim on the outer ribbon columns, lakes 0x3f7a78. water.update in swiftshader 1.5 ms vs 3.2 ms baseline (noisy, not slower).
+
+## 2026-11-01 17:34 Step 6 done: trees and grass
+- Conifer (stacked cones) and broadleaf (three icosahedra on a taller trunk) chosen per cell by a clump noise plus hash; canopy colours vary lush/dry/dark; tufts tinted sand-green on bars; no trees on cut banks (EARTH) or lakes. trees-3-bend.png shows both shapes.
+- Also: dusk warmed (sun 0xffa552, horizon 0xf2a866, wider glow, hemisphere tint), PCFSoftShadowMap -> PCFShadowMap (removed in three r187, was a console warning).
