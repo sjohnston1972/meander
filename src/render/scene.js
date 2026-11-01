@@ -15,7 +15,7 @@ export function createScene(canvas, settings) {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x9fc5e8);
-  scene.fog = new THREE.FogExp2(0xbfd6e8, 0.00007);
+  scene.fog = new THREE.FogExp2(0xd3e0ea, 0.00013);
 
   const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 20000);
   camera.position.set(...CAMERAS.overview.pos);
@@ -52,17 +52,55 @@ export function createScene(canvas, settings) {
   scene.add(sun.target);
 
   // Distant ground so the valley does not float in the sky.
+  // Beyond the valley: a muted plain that fades into the haze within a few km.
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(VALLEY.length * 6, VALLEY.width * 10),
-    new THREE.MeshStandardMaterial({ color: 0x4f7a34, roughness: 1 }),
+    new THREE.PlaneGeometry(VALLEY.length * 2.2, VALLEY.width * 3.6),
+    new THREE.MeshStandardMaterial({ color: 0x6a8c47, roughness: 1 }),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -6;
   ground.receiveShadow = true;
   scene.add(ground);
 
-  const skyColours = { day: new THREE.Color(0x9fc5e8), dusk: new THREE.Color(0xe8a76a), night: new THREE.Color(0x263a55) };
-  const fogColours = { day: new THREE.Color(0xbfd6e8), dusk: new THREE.Color(0xe8c39a), night: new THREE.Color(0x30465f) };
+  // Sky dome: a big inverted sphere with a vertex-coloured gradient, pale at
+  // the horizon, deeper overhead, warm around a low sun. Unlit and unfogged.
+  const SKY_R = 16000;
+  const skyGeom = new THREE.SphereGeometry(SKY_R, 48, 24);
+  skyGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(skyGeom.attributes.position.count * 3), 3));
+  const sky = new THREE.Mesh(skyGeom, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+  sky.renderOrder = -1;
+  sky.frustumCulled = false;
+  scene.add(sky);
+  const horizonDay = new THREE.Color(0xc9dcec), zenithDay = new THREE.Color(0x4a8bcc);
+  const horizonDusk = new THREE.Color(0xf0b57a), zenithDusk = new THREE.Color(0x5f6f9f);
+  const glowDay = new THREE.Color(0xf7f3e6), glowDusk = new THREE.Color(0xffc27a);
+  const hcol = new THREE.Color(), zcol = new THREE.Color(), gcol = new THREE.Color(), vcol = new THREE.Color();
+  const sunDir = new THREE.Vector3();
+  function paintSky(low) {
+    hcol.copy(horizonDay).lerp(horizonDusk, low);
+    zcol.copy(zenithDay).lerp(zenithDusk, low);
+    gcol.copy(glowDay).lerp(glowDusk, low);
+    sunDir.copy(sun.position).normalize();
+    const pos = skyGeom.attributes.position, col = skyGeom.attributes.color;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).normalize();
+      const t = Math.max(0, v.y);                         // 0 horizon, 1 zenith
+      const k = Math.pow(t, 0.6);                         // pale band near the horizon, blue above
+      vcol.copy(hcol).lerp(zcol, k);
+      // Warm glow around the sun, strongest when the sun is low.
+      const toward = Math.max(0, v.dot(sunDir));
+      const glow = Math.pow(toward, 8) * (0.25 + 0.75 * low) * (1 - k * 0.6);
+      vcol.lerp(gcol, Math.min(1, glow));
+      // Below the horizon fade to the fog colour so the ground plane edge is hidden.
+      if (v.y < 0) vcol.copy(hcol).lerp(scene.fog.color, Math.min(1, -v.y * 4));
+      col.setXYZ(i, vcol.r, vcol.g, vcol.b);
+    }
+    col.needsUpdate = true;
+  }
+
+  const skyColours = { day: new THREE.Color(0xd6e6f2), dusk: new THREE.Color(0xf0b57a) };
+  const fogColours = { day: new THREE.Color(0xd3e0ea), dusk: new THREE.Color(0xe9c39c) };
   const sunColours = { day: new THREE.Color(0xfff2dc), dusk: new THREE.Color(0xffb070) };
 
   function setTimeOfDay(hour) {
@@ -73,17 +111,18 @@ export function createScene(canvas, settings) {
     const r = 6000;
     sun.position.set(Math.cos(az) * Math.cos(elev) * r, Math.sin(elev) * r, Math.sin(az) * Math.cos(elev) * r * 0.5);
     sun.target.position.set(0, 0, 0);
-    const low = 1 - Math.min(1, Math.sin(Math.PI * t) * 2.2); // 1 near sunrise/sunset
+    const low = 1 - Math.min(1, Math.sin(Math.PI * t) * 1.6); // 1 near sunrise/sunset
     sun.color.copy(sunColours.day).lerp(sunColours.dusk, low);
     sun.intensity = 1.2 + 1.4 * Math.sin(Math.PI * t);
     hemi.intensity = 0.5 + 0.5 * Math.sin(Math.PI * t);
     scene.background.copy(skyColours.day).lerp(skyColours.dusk, low * 0.9);
     scene.fog.color.copy(fogColours.day).lerp(fogColours.dusk, low * 0.9);
+    paintSky(low);
   }
   setTimeOfDay(settings.timeOfDay);
 
   function setFog(amount) {
-    scene.fog.density = 0.00001 + amount * 0.00012;
+    scene.fog.density = 0.00003 + amount * 0.0002;
   }
   setFog(settings.fog);
 
@@ -116,6 +155,7 @@ export function createScene(canvas, settings) {
   window.addEventListener('resize', onResize);
 
   function render(dt) {
+    sky.position.copy(camera.position); // the dome travels with the camera
     if (tween) {
       tween.t += dt / tween.seconds;
       const k = tween.t >= 1 ? 1 : 1 - Math.pow(1 - tween.t, 3);

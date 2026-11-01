@@ -195,10 +195,10 @@ export const FLOODS = {
 export const RENDER = {
   waterLevelOffset: 0.0,   // metres above bed+depth the water surface sits
   rippleSpeed: 0.05,       // normal-map scroll speed
-  poolColour: 0x1b4a5c,    // deep water
+  poolColour: 0x153f52,    // deep water
   riffleColour: 0x5aa6b8,  // shallow water
   floodColour: 0x7a6a3c,   // muddy flood water
-  lakeColour: 0x3d6f7a,    // fresh oxbow lake
+  lakeColour: 0x3f7a78,    // fresh oxbow lake (stiller, a touch greener than the river)
   marshColour: 0x5f7f4a,   // infilled oxbow
   surfaceColours: {
     0: 0x5d8a3a,           // GRASS

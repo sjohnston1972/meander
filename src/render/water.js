@@ -11,6 +11,7 @@ const riffleColour = new THREE.Color(RENDER.riffleColour);
 const floodColour = new THREE.Color(RENDER.floodColour);
 const lakeColour = new THREE.Color(RENDER.lakeColour);
 const marshColour = new THREE.Color(RENDER.marshColour);
+const rimColour = new THREE.Color(0xa9d3dc);
 const tmp = new THREE.Color();
 
 // Procedural ripple normal map: a few overlapping sine waves.
@@ -113,12 +114,12 @@ function finishRibbon(mesh, points, segmentsUsed) {
 export function createWater() {
   const normalMap = makeNormalMap();
   const riverMaterial = new THREE.MeshStandardMaterial({
-    vertexColors: true, transparent: true, opacity: 0.85, roughness: 0.2, metalness: 0.05,
+    vertexColors: true, transparent: true, opacity: 0.85, roughness: 0.12, metalness: 0.05,
     normalMap, normalScale: new THREE.Vector2(0.35, 0.35), depthWrite: false,
   });
   const lakeMaterial = new THREE.MeshStandardMaterial({
-    vertexColors: true, transparent: true, opacity: 0.8, roughness: 0.15, metalness: 0.05,
-    normalMap, normalScale: new THREE.Vector2(0.12, 0.12), depthWrite: false,
+    vertexColors: true, transparent: true, opacity: 0.8, roughness: 0.1, metalness: 0.05,
+    normalMap, normalScale: new THREE.Vector2(0.07, 0.07), depthWrite: false,
   });
   const floodMaterial = new THREE.MeshStandardMaterial({
     color: RENDER.floodColour, transparent: true, opacity: 0, roughness: 0.3, metalness: 0,
@@ -183,6 +184,8 @@ export function createWater() {
       const nearThalweg = 1 - Math.min(1, Math.abs(side - thal * 1.5) * 0.8);
       const deep = Math.max(0, bend * 0.6 + nearThalweg * 0.5 - 0.1) * (1 - Math.pow(Math.abs(side), 4));
       tmp.copy(riffleColour).lerp(poolColour, Math.min(1, deep));
+      // Faint lighter rim where the water meets the bank.
+      if (u01 === 0 || u01 === 1) tmp.lerp(rimColour, 0.35);
       tmp.lerp(floodColour, f * 0.85);
     };
     const used = writeRibbon(river, 0, c.x, c.y, c.level, W * (1 + f * 0.3), exaggeration, colourFn, 0, 0.06 + floodLift);

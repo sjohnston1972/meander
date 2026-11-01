@@ -16,3 +16,9 @@ and after. Steps are in PLAN.md.
 
 ## 2026-11-01 16:57 Step 3 done: channel edges
 - Cells touching water take the 3x3 average of neighbouring vertex colours (heights untouched); ribbon overlap 0.12 -> 0.16 W. Bank line in edges-3-bend.png reads smooth at the preset distance. terrain.update node bench 15.2 ms.
+
+## 2026-11-01 17:20 Step 4 done: sky and haze
+- Sky dome (inverted sphere, vertex gradient, warm glow around a low sun, follows the camera). Far ground shrunk to 2.2 x 3.6 valley and muted; default fog raised (0.00003 + fog * 0.0002) so distance fades to the horizon instead of a flat green void. sky-tod-7/12/17.png saved. Dusk tint still subtle; warmed further in Step 6.
+
+## 2026-11-01 17:20 Step 5 done: water
+- roughness 0.12 (lakes 0.10, stiller normal map), pool colour 0x153f52, lighter rim on the outer ribbon columns, lakes 0x3f7a78. water.update in swiftshader 1.5 ms vs 3.2 ms baseline (noisy, not slower).
