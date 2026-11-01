@@ -97,3 +97,116 @@ export function initialCentreline(settings, rng) {
   x[n - 1] = VALLEY.length;
   return { x, y };
 }
+
+// Howard & Knutson (1984) migration rate, as used by meanderpy.
+//   R0(s) = k(s) · C(s) · W
+//   R1(s) = Ω R0(s) + Γ · Σ_upstream R0(s−ξ) e^{−αξ} / Σ e^{−αξ}
+// The upstream sum is an exponential filter run once from upstream to
+// downstream, so this is O(n). `k` is the local erodibility in m/yr per unit
+// of (curvature × width); `W` is channel width. Positive rate moves the point
+// towards the outer bank (to the right of flow for a left-turning bend).
+export function migrationRate(x, y, c, k, params, ds, W) {
+  const n = x.length;
+  const rate = new Float64Array(n);
+  const { omega, gamma, alpha } = params;
+  let sum = 0, norm = 0;
+  for (let i = 0; i < n; i++) {
+    const r0 = k[i] * c[i] * W;
+    const seg = i === 0 ? ds : Math.hypot(x[i] - x[i - 1], y[i] - y[i - 1]);
+    const w = Math.exp(-alpha * seg);
+    sum = r0 + w * sum;
+    norm = 1 + w * norm;
+    let r1 = omega * r0 + gamma * (sum / norm);
+    if (r1 > CENTRELINE.maxRate) r1 = CENTRELINE.maxRate;
+    else if (r1 < -CENTRELINE.maxRate) r1 = -CENTRELINE.maxRate;
+    rate[i] = r1;
+  }
+  return rate;
+}
+
+// Move every interior point sideways along its right-hand normal by rate × dt.
+export function migrate(x, y, rate, dt) {
+  const n = x.length;
+  const nx = new Float64Array(n), ny = new Float64Array(n);
+  for (let i = 1; i < n - 1; i++) {
+    const tx = x[i + 1] - x[i - 1], ty = y[i + 1] - y[i - 1];
+    const l = Math.hypot(tx, ty) || 1;
+    nx[i] = ty / l; ny[i] = -tx / l; // right-hand normal (looking downstream)
+  }
+  for (let i = 1; i < n - 1; i++) {
+    const d = rate[i] * dt;
+    x[i] += d * nx[i];
+    y[i] += d * ny[i];
+  }
+}
+
+// Neck cutoff search: two points far apart along the river but closer than
+// `cutoffDistance` in space. Uses a spatial hash so it is O(n) per step.
+// Returns the closest such pair, or null.
+export function findNeckCutoff(x, y, minSeparationPoints, cutoffDistance, endProtection) {
+  const n = x.length;
+  const cell = cutoffDistance;
+  const grid = new Map();
+  const key = (cx, cy) => cx * 73856093 ^ cy * 19349663;
+  for (let i = endProtection; i < n - endProtection; i++) {
+    const k = key(Math.floor(x[i] / cell), Math.floor(y[i] / cell));
+    let b = grid.get(k);
+    if (!b) { b = []; grid.set(k, b); }
+    b.push(i);
+  }
+  let best = null, bestD = cutoffDistance;
+  for (let i = endProtection; i < n - endProtection; i++) {
+    const cx = Math.floor(x[i] / cell), cy = Math.floor(y[i] / cell);
+    for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+      const b = grid.get(key(cx + ox, cy + oy));
+      if (!b) continue;
+      for (const j of b) {
+        if (j - i < minSeparationPoints) continue;
+        const d = Math.hypot(x[j] - x[i], y[j] - y[i]);
+        if (d < bestD) { bestD = d; best = { i, j }; }
+      }
+    }
+  }
+  return best;
+}
+
+// Remove points i+1 .. j-1 and return the new chain plus the abandoned loop.
+export function spliceCutoff(x, y, i, j) {
+  const n = x.length;
+  const m = n - (j - i - 1);
+  const nx = new Float64Array(m), ny = new Float64Array(m);
+  nx.set(x.subarray(0, i + 1)); ny.set(y.subarray(0, i + 1));
+  nx.set(x.subarray(j), i + 1); ny.set(y.subarray(j), i + 1);
+  const loop = { x: Float64Array.from(x.subarray(i, j + 1)), y: Float64Array.from(y.subarray(i, j + 1)) };
+  return { x: nx, y: ny, loop };
+}
+
+// Chute cutoff: during a flood a tight bend may be short-cut across its point
+// bar. For each tight bend apex, roll the dice; if it fires, return the pair
+// (i, j) bracketing the apex with the longest river distance whose straight
+// line distance is still short.
+export function findChuteCutoff(x, y, c, rng, chance, ds, W, endProtection) {
+  if (chance <= 0) return null;
+  const n = x.length;
+  const minSep = Math.round((CENTRELINE.chuteMinWidths * W) / ds);
+  const maxSep = Math.round((CENTRELINE.chuteMaxWidths * W) / ds);
+  const maxDist = CENTRELINE.chuteMaxDistanceWidths * W;
+  const minCurv = CENTRELINE.chuteMinCurvature / W;
+  for (let a = endProtection + 1; a < n - endProtection - 1; a++) {
+    const ca = Math.abs(c[a]);
+    if (ca < minCurv) continue;
+    if (!(ca >= Math.abs(c[a - 1]) && ca > Math.abs(c[a + 1]))) continue; // local apex
+    if (!rng.chance(chance)) continue;
+    let best = null;
+    for (let i = Math.max(endProtection, a - maxSep); i < a; i++) {
+      for (let j = a + 1; j <= Math.min(n - 1 - endProtection, i + maxSep); j++) {
+        const sep = j - i;
+        if (sep < minSep) continue;
+        const d = Math.hypot(x[j] - x[i], y[j] - y[i]);
+        if (d < maxDist && (!best || sep > best.j - best.i)) best = { i, j };
+      }
+    }
+    if (best) return best;
+  }
+  return null;
+}
