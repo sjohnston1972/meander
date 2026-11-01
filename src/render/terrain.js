@@ -120,11 +120,13 @@ export function createTerrain() {
     const baseCol = new Float32Array(cols);
     const incision = st.incision || 0;
     for (let cx = 0; cx < cols; cx++) baseCol[cx] = st.valleySlope * (VALLEY.length - (cx + 0.5) * cell) + st.bankHeight - incision;
+    let minY = Infinity;
     for (let cy = 0; cy < rows; cy++) {
       const y0 = cy > 0 ? cy - 1 : cy, y1 = cy < rows - 1 ? cy + 1 : cy;
       for (let cx = 0; cx < cols; cx++) {
         const i = cy * cols + cx;
         pos[i * 3 + 1] = height[i] * ex + waterLevelBias;
+        if (pos[i * 3 + 1] < minY) minY = pos[i * 3 + 1];
         const x0 = cx > 0 ? cx - 1 : cx, x1 = cx < cols - 1 ? cx + 1 : cx;
         const dhx = (height[cy * cols + x1] - height[cy * cols + x0]) * inv * (x1 - x0 === 2 ? 1 : 2);
         const dhz = (height[y1 * cols + cx] - height[y0 * cols + cx]) * inv * (y1 - y0 === 2 ? 1 : 2);
@@ -192,12 +194,15 @@ export function createTerrain() {
     geometry.attributes.color.needsUpdate = true;
     geometry.computeBoundingSphere();
 
+    // The skirt reaches below the far ground plane and below the deepest
+    // terrain, so an incised channel leaving the valley does not show a gap.
+    const skirtBottom = Math.min(-40, minY - 10);
     const sp = skirtGeometry.attributes.position.array;
     const perim = 2 * cols + 2 * rows;
     for (let e = 0; e < perim; e++) {
       const i = perimeterIndex(e);
       sp[e * 6] = pos[i * 3]; sp[e * 6 + 1] = pos[i * 3 + 1]; sp[e * 6 + 2] = pos[i * 3 + 2];
-      sp[e * 6 + 3] = pos[i * 3]; sp[e * 6 + 4] = -40; sp[e * 6 + 5] = pos[i * 3 + 2];
+      sp[e * 6 + 3] = pos[i * 3]; sp[e * 6 + 4] = skirtBottom; sp[e * 6 + 5] = pos[i * 3 + 2];
     }
     skirtGeometry.attributes.position.needsUpdate = true;
     skirtGeometry.computeBoundingSphere();

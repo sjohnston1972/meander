@@ -58,11 +58,15 @@ export class Engine {
 
   // Tall banks (terrace edges) erode more slowly than the river's own banks.
   // The river's own levees (up to leveeMaxHeight) do not count; only ground
-  // standing higher than that, such as a terrace edge, slows it down.
+  // standing higher than that, such as a terrace edge, slows it down. The
+  // slowing goes with the square root of the extra height (tall banks also
+  // fail by slumping, which keeps them retreating) and never below
+  // minBankFactor, so an incising river keeps sweeping the valley floor and
+  // cuts a broad terraced valley rather than freezing in a slot.
   static bankFactor(actual, nominal) {
     const excess = actual - nominal - FLOODPLAIN.leveeMaxHeight;
     if (excess <= 0) return 1;
-    return Math.max(CENTRELINE.minBankFactor, nominal / (nominal + excess));
+    return Math.max(CENTRELINE.minBankFactor, Math.sqrt(nominal / (nominal + excess)));
   }
 
   static helpers = { sampleErodibility, effectiveDepth, bankFactor: Engine.bankFactor };

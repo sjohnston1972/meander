@@ -129,7 +129,7 @@ export const CENTRELINE = {
   depthBelowBank: 0.5,     // the channel is never deeper than bank height minus this (metres)
   incisionMaxRate: 0.05,   // m/yr the bed can cut down after a sudden base-level drop
   baseLevelDrop: 2,        // metres per press of the "Drop base level" button
-  minBankFactor: 0.15,     // erodibility floor for very tall banks (terrace edges)
+  minBankFactor: 0.4,      // erodibility floor for very tall banks (terrace edges); lower and an incising river freezes in a slot
   endProtection: 6,        // points at each end that never migrate or cut off
   wallMarginWidths: 8,     // erodibility fades to zero this many widths from the valley walls
   outletFadeFraction: 0.12, // fraction of valley length before the outlet where migration fades out

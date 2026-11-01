@@ -61,8 +61,29 @@ describe('vertical erosion', () => {
     expect(bankFactor(4, 4)).toBe(1);
     expect(bankFactor(2, 4)).toBe(1);
     expect(bankFactor(5.5, 4)).toBe(1); // a levee on top of the bank does not count
-    expect(bankFactor(8, 4)).toBeCloseTo(4 / 6.5, 6);
-    expect(bankFactor(80, 4)).toBeGreaterThanOrEqual(CENTRELINE.minBankFactor);
+    // Gentle: retreat slows with the square root of the extra height, so a
+    // terrace edge slows the river without freezing it in a slot.
+    expect(bankFactor(8, 4)).toBeCloseTo(Math.sqrt(4 / 6.5), 6);
+    expect(bankFactor(80, 4)).toBe(CENTRELINE.minBankFactor);
+    expect(CENTRELINE.minBankFactor).toBeGreaterThanOrEqual(0.4);
+  });
+
+  it('keeps sweeping the valley floor while it cuts down', { timeout: 180000 }, () => {
+    // Under steady incision the river must go on migrating and rework a broad
+    // strip of the floor, not freeze in a slot. Seed 1, 4000 years: the frozen
+    // behaviour reworks ~18 % of the floor, a sweeping river ~30 %.
+    const e = new Engine({ ...defaults, incisionRate: 4, quality: 'low' });
+    run(e, 4000 / DT);
+    const g = e.grid;
+    let reworked = 0, land = 0;
+    for (let cy = 0; cy < g.rows; cy++) for (let cx = 0; cx < g.cols; cx++) {
+      const y = (cy + 0.5) * g.cell;
+      if (y < 300 || y > VALLEY.width - 300) continue;
+      land++;
+      const orig = defaults.valleySlope * (VALLEY.length - (cx + 0.5) * g.cell) + defaults.bankHeight;
+      if (g.height[cy * g.cols + cx] < orig - 1) reworked++;
+    }
+    expect(reworked / land).toBeGreaterThan(0.25);
   });
 
   it('changing bank height mid-run shifts terraces without flattening them', { timeout: LONG }, () => {

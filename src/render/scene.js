@@ -53,8 +53,20 @@ export function createScene(canvas, settings) {
 
   // Distant ground so the valley does not float in the sky.
   // Beyond the valley: a muted plain that fades into the haze within a few km.
+  // It is a ring with a hole the size of the valley: the terrain can then be
+  // cut as deep as it likes (an incising river) without the plain showing
+  // through from underneath. The terrain's skirt closes the gap at the edge.
+  const groundShape = new THREE.Shape();
+  const gx = VALLEY.length * 1.1, gz = VALLEY.width * 1.8;
+  groundShape.moveTo(-gx, -gz); groundShape.lineTo(gx, -gz); groundShape.lineTo(gx, gz); groundShape.lineTo(-gx, gz); groundShape.closePath();
+  const hole = new THREE.Path();
+  // The terrain mesh stops half a cell short of the valley edge, so the hole
+  // is inset a little to tuck the plain under the terrain rim with no sliver.
+  const hx = VALLEY.length / 2 - 30, hz = VALLEY.width / 2 - 30;
+  hole.moveTo(-hx, -hz); hole.lineTo(hx, -hz); hole.lineTo(hx, hz); hole.lineTo(-hx, hz); hole.closePath();
+  groundShape.holes.push(hole);
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(VALLEY.length * 2.2, VALLEY.width * 3.6),
+    new THREE.ShapeGeometry(groundShape),
     new THREE.MeshStandardMaterial({ color: 0x6a8c47, roughness: 1 }),
   );
   ground.rotation.x = -Math.PI / 2;
