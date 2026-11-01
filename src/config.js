@@ -1,0 +1,291 @@
+// Every tunable number in Meander lives here, with a note on what it does.
+// Units are metres and simulated years unless stated otherwise.
+//
+// `defaults` is the flat settings object that flows into the engine and the
+// renderer. Anything a visitor can change from the control panel is in here.
+// The constants below `defaults` are internal and are not exposed as controls.
+
+export const defaults = {
+  // --- Simulation ---
+  seed: 1,                 // seed for all randomness; same seed + settings = same river
+  startShape: 'wiggle',    // 'straight' | 'wiggle' | 'sine' initial centreline
+  yearsPerSecond: 10,      // playback speed; changes steps per second, never the step size
+
+  // --- Flow ---
+  meanDischarge: 100,      // mean flow, cubic metres per second (scales migration speed)
+  floodFrequency: 4,       // average number of floods per 100 years
+  floodSize: 3,            // flood peak as a multiple of mean discharge
+
+  // --- Channel ---
+  channelWidth: 60,        // bank-to-bank width in metres
+  channelDepth: 3,         // mean channel depth in metres
+  valleySlope: 0.0005,     // fall per metre down the valley (0.0005 = 50 cm per km)
+  sedimentSupply: 1,       // how quickly bars and levees build (1 = normal)
+
+  // --- Banks ---
+  erodibility: 1,          // bank erodibility multiplier (1 = soft lowland soil)
+  bankHeight: 4,           // floodplain height above the channel bed in metres
+  patchiness: 0.5,         // how varied the ground is (0 = uniform, 1 = very patchy)
+  hardRock: false,         // scatter hard rock patches that the river cannot easily erode
+  paintRock: false,        // when on, click-drag on the ground paints hard rock
+
+  // --- Vegetation ---
+  vegGrowth: 1,            // how fast plants colonise stable land (1 = full cover in ~80 years)
+  rootStrength: 0.6,       // how much full vegetation protects banks (0 = none, 1 = immune)
+  vegDensity: 1,           // visual density of trees and grass (does not affect physics)
+
+  // --- Cutoffs ---
+  cutoffDistance: 1.0,     // neck cutoff when two reaches come within this many channel widths
+  chuteChance: 0.3,        // chance per flood-year that a tight bend gets a chute cutoff
+  infillRate: 1,           // how fast oxbow lakes silt up (1 = marsh in ~150 years)
+
+  // --- Model (advanced) ---
+  omega: -1,               // Howard & Knutson local curvature weight (their value: -1)
+  gamma: 2.5,              // Howard & Knutson upstream influence weight (their value: 2.5)
+  alpha: 0.012,            // 1/m, how fast upstream influence fades (2·Cf/D with Cf≈0.02, D≈3 m)
+
+  // --- Show ---
+  showParticles: true,     // helical flow particles
+  showThalweg: false,      // line of deepest flow
+  showTrails: false,       // where the channel was 50, 100 and 200 years ago
+  showLabels: false,       // Explain mode
+  crossSectionOnClick: true,
+  waterOpacity: 0.85,      // 0 = invisible, 1 = opaque
+  exaggeration: 2,         // vertical exaggeration of the landscape
+
+  // --- Scene ---
+  timeOfDay: 15,           // hour of day, 6 (sunrise) to 18 (sunset)
+  fog: 0.5,                // 0 = clear, 1 = thick haze
+  quality: 'medium',       // 'low' | 'medium' | 'high'
+};
+
+// Settings that need a full reset to take effect (the panel says so).
+export const RESET_KEYS = ['seed', 'startShape', 'quality'];
+
+// --- Valley geometry ---
+export const VALLEY = {
+  length: 4000,            // metres, upstream to downstream (engine x axis)
+  width: 2000,             // metres across the valley (engine y axis)
+};
+
+// --- Time ---
+export const DT = 0.25;              // simulated years per engine step (fixed)
+export const MAX_STEPS_PER_FRAME = 40; // cap on catch-up steps per worker timer tick
+export const SNAPSHOT_HZ = 20;       // max snapshots per second sent to the renderer
+
+// --- Centreline ---
+export const CENTRELINE = {
+  spacingFactor: 0.5,      // point spacing as a fraction of channel width
+  wiggleAmplitude: 0.5,    // initial random wiggle, in channel widths
+  wiggleWavelength: 10,    // initial wiggle wavelength, in channel widths
+  sineAmplitude: 1.5,      // 'sine' start shape amplitude, in channel widths
+  sineWavelength: 12,      // 'sine' start shape wavelength, in channel widths
+  smoothingPasses: 1,      // light centreline smoothing per step
+  curvatureSmoothing: 2,   // smoothing passes applied to curvature
+  migrationScale: 40,      // m/yr per unit (curvature × width); scaled by erodibility
+  dischargeExponent: 0.5,  // migration ∝ (Q / meanQ)^this
+  maxRate: 30,             // m/yr cap on migration at any point (keeps the model stable)
+  minSeparationWidths: 4,  // neck cutoff only between reaches this far apart along the river
+  endProtection: 6,        // points at each end that never migrate or cut off
+  chuteMinWidths: 3,       // chute cutoff shortcut must span at least this many widths of river
+  chuteMaxWidths: 12,      // ... and at most this many
+  chuteMaxDistanceWidths: 3, // chute only where the two reaches are within this many widths
+  chuteMinCurvature: 0.6,  // curvature × width above which a bend counts as "tight"
+  trailInterval: 10,       // years between stored history centrelines
+  trailAges: [50, 100, 200], // history trails to show, years ago
+};
+
+// --- Floodplain grid ---
+export const QUALITY = {
+  low:    { cols: 256, rows: 128, shadowMap: 1024, trees: 3000,  grass: 6000,  particles: 1500 },
+  medium: { cols: 512, rows: 256, shadowMap: 2048, trees: 8000,  grass: 16000, particles: 3000 },
+  high:   { cols: 768, rows: 384, shadowMap: 4096, trees: 16000, grass: 32000, particles: 5000 },
+};
+
+export const SURFACE = { GRASS: 0, SAND: 1, EARTH: 2, WETLAND: 3, ROCK: 4, WATER: 5, MARSH: 6 };
+
+export const FLOODPLAIN = {
+  baseNoise: 0.4,          // metres of gentle random relief on the initial floodplain
+  barHeightFraction: 0.55, // point bar top as a fraction of bank height above the bed
+  scrollAmplitude: 0.35,   // metres, height of scroll bar ridges
+  scrollPeriod: 12,        // years between scroll ridges
+  leveeWidthWidths: 1.0,   // levee band width in channel widths from the bank
+  leveeRate: 0.08,         // metres per flood-year added at the levee crest (× sediment supply)
+  overbankRate: 0.004,     // metres per flood-year added to the far floodplain
+  cutBankRate: 2,          // m/yr migration above which the outer bank shows bare earth
+  oxbowInfillYears: 150,   // years for an oxbow to fill to marsh at infillRate 1
+  oxbowMarshDepth: 0.6,    // metres of water below which an oxbow reads as marsh
+  scarDepth: 0.4,          // metres, hollow left by a fully infilled oxbow
+  vegFullYears: 80,        // years for bare land to reach full vegetation at vegGrowth 1
+  vegTreeThreshold: 0.6,   // vegetation value above which trees appear
+  rockPatches: 6,          // number of hard rock patches when hardRock is on
+  rockRadiusWidths: 2.5,   // radius of each rock patch, in channel widths
+  rockErodibility: 0.03,   // erodibility multiplier inside rock
+  noiseScaleWidths: 6,     // size of erodibility noise blobs in channel widths
+};
+
+// --- Floods and banks ---
+export const FLOODS = {
+  duration: 1.0,           // years a flood lasts
+  dischargeVariation: 0.25, // lognormal sigma of year-to-year discharge
+  floodMigrationBoost: 1,  // migration multiplier during a flood is 1 + boost·(size−1)·0.5
+  collapseRateThreshold: 6, // m/yr migration above which a bank may collapse
+  collapseChance: 0.15,    // chance per year that such a bank collapses
+  collapseSlump: 6,        // metres of extra lateral movement when it does
+  collapseVegStripRadius: 1.5, // channel widths of vegetation stripped by a collapse
+};
+
+// --- Renderer ---
+export const RENDER = {
+  waterLevelOffset: 0.0,   // metres above bed+depth the water surface sits
+  rippleSpeed: 0.05,       // normal-map scroll speed
+  poolColour: 0x1b4a5c,    // deep water
+  riffleColour: 0x5aa6b8,  // shallow water
+  floodColour: 0x7a6a3c,   // muddy flood water
+  lakeColour: 0x3d6f7a,    // fresh oxbow lake
+  marshColour: 0x5f7f4a,   // infilled oxbow
+  surfaceColours: {
+    0: 0x5d8a3a,           // GRASS
+    1: 0xd2b97d,           // SAND
+    2: 0x7d5a3c,           // EARTH (cut bank)
+    3: 0x4f7a4e,           // WETLAND
+    4: 0x6e6a66,           // ROCK
+    5: 0x3a6f80,           // WATER (channel bed)
+    6: 0x6f8a4a,           // MARSH
+  },
+  treeColour: 0x2f5d2a,
+  trunkColour: 0x5a4030,
+  grassColour: 0x7fae4f,
+  maxLabels: 12,           // Explain mode labels shown at once
+  cameraMinDistance: 40,
+  cameraMaxDistance: 4500,
+  cameraMaxPolar: 1.48,    // radians, keeps the camera above the ground
+  cameraTween: 1.0,        // seconds for preset camera moves
+};
+
+// --- Camera presets (positions in renderer space: x downstream, z across, y up) ---
+export const CAMERAS = {
+  overview:  { pos: [-1200, 1400, 2400], target: [0, 0, 0] },
+  oblique:   { pos: [-2200, 260, 900],   target: [0, 0, 0] },
+  bend:      { pos: [200, 220, 520],     target: [0, 0, 0] },
+  topdown:   { pos: [0, 3200, 1],        target: [0, 0, 0] },
+};
+
+export const PRESETS = {
+  'Lowland Scottish river': {
+    channelWidth: 40, channelDepth: 2.5, meanDischarge: 60, valleySlope: 0.0008,
+    erodibility: 0.8, bankHeight: 3, vegGrowth: 1.2, rootStrength: 0.7, floodFrequency: 6,
+  },
+  'Big lazy lowland river': {
+    channelWidth: 110, channelDepth: 5, meanDischarge: 400, valleySlope: 0.0002,
+    erodibility: 0.6, bankHeight: 5, vegGrowth: 1, rootStrength: 0.5, floodFrequency: 3,
+  },
+  'Tight-bend clay river': {
+    channelWidth: 45, channelDepth: 3, meanDischarge: 80, valleySlope: 0.0004,
+    erodibility: 0.5, bankHeight: 4.5, patchiness: 0.8, vegGrowth: 1.4, rootStrength: 0.8,
+    cutoffDistance: 0.8, gamma: 3,
+  },
+  'Fast-migrating sandy river': {
+    channelWidth: 70, channelDepth: 2.5, meanDischarge: 150, valleySlope: 0.0007,
+    erodibility: 1.8, bankHeight: 3, patchiness: 0.3, vegGrowth: 0.5, rootStrength: 0.3,
+    floodFrequency: 8, chuteChance: 0.6,
+  },
+};
+
+// One-line hover help for every control, keyed by settings name or action name.
+export const HELP = {
+  play: 'Run or pause the simulation (Space)',
+  step: 'Advance one simulated year',
+  yearsPerSecond: 'Playback speed. Only changes how many steps run per second; the result is the same at any speed',
+  reset: 'Start again from the initial channel with the current seed and settings (R)',
+  seed: 'Seed for all randomness. Same seed and settings always give the same river. Needs a reset',
+  startShape: 'Shape of the initial channel. Needs a reset',
+  year: 'Simulated years since the start',
+  preset: 'Load a set of settings for a type of river (resets the simulation)',
+  meanDischarge: 'Average flow in cubic metres per second. More water, faster migration',
+  floodFrequency: 'Average number of floods per 100 years',
+  floodSize: 'Flood peak as a multiple of the mean flow. Bigger floods leave more silt and cause more chute cutoffs',
+  flood: 'Start a flood now (F)',
+  channelWidth: 'Bank to bank width in metres',
+  channelDepth: 'Mean channel depth in metres',
+  valleySlope: 'Fall of the valley floor per metre. Shown as metres per kilometre',
+  sedimentSupply: 'How quickly point bars and levees build',
+  erodibility: 'How easily banks erode. 1 is soft lowland soil',
+  bankHeight: 'Height of the floodplain above the channel bed in metres',
+  patchiness: 'How varied the ground is. Patchy ground makes irregular bends',
+  hardRock: 'Scatter patches of hard rock that deflect the river',
+  paintRock: 'When on, click and drag on the ground to paint hard rock',
+  vegGrowth: 'How fast plants colonise bare ground',
+  rootStrength: 'How much full plant cover slows bank erosion',
+  vegDensity: 'How many trees and grass clumps are drawn. Visual only',
+  cutoffDistance: 'Two reaches closer than this many channel widths join and cut off the loop',
+  chuteChance: 'Chance per flood year that a tight bend is short-cut across its point bar',
+  infillRate: 'How fast oxbow lakes fill with silt and plants',
+  omega: 'Weight on local curvature in the Howard and Knutson model (their value: -1)',
+  gamma: 'Weight on upstream curvature (their value: 2.5). Makes bends lean downstream',
+  alpha: 'How quickly upstream influence fades, per metre',
+  showParticles: 'Animated particles corkscrewing through bends (visual, not real fluid dynamics)',
+  showThalweg: 'Draw the line of deepest, fastest flow',
+  showTrails: 'Show where the channel was 50, 100 and 200 years ago',
+  showLabels: 'Explain mode: label features and say how they formed',
+  crossSectionOnClick: 'Click a point on the river to see the channel cross-section there',
+  waterOpacity: 'How see-through the water is',
+  exaggeration: 'Stretch heights so small features are easier to see',
+  timeOfDay: 'Hour of day. Low sun gives warm light and long shadows',
+  fog: 'Distance haze',
+  quality: 'Trades detail for speed. Changing it resets the simulation',
+  copyLink: 'Copy a link that reopens this exact river and settings',
+  screenshot: 'Save a PNG of the current view',
+};
+
+// Explain-mode text: two lines each.
+export const EXPLANATIONS = {
+  cutbank: {
+    title: 'Cut bank',
+    text: 'Fast water on the outside of the bend undercuts the bank, so it collapses and retreats. The steep bare face is the river eating into the floodplain.',
+  },
+  pointbar: {
+    title: 'Point bar',
+    text: 'Slow water on the inside of the bend drops sand and gravel. The bar grows as the bend migrates away from it.',
+  },
+  oxbow: {
+    title: 'Oxbow lake',
+    text: 'A loop abandoned when the river cut through its neck. Sealed off by silt at both ends, it slowly fills in and turns to marsh.',
+  },
+  marsh: {
+    title: 'Infilled oxbow',
+    text: 'An old oxbow lake that has filled with silt and plants. Eventually only a faint curved scar in the floodplain remains.',
+  },
+  levee: {
+    title: 'Natural levee',
+    text: 'When floods spill over the bank the water slows and drops its coarsest silt first, building a low ridge along the channel.',
+  },
+  scrollbar: {
+    title: 'Scroll bars',
+    text: 'Each flood leaves a new ridge on the point bar as the bend migrates. The curved ridges and hollows record where the inner bank used to be.',
+  },
+  neck: {
+    title: 'Meander neck',
+    text: 'Two outer banks are eroding towards each other. When they meet the river takes the short route and the loop becomes an oxbow.',
+  },
+  helical: {
+    title: 'Helical flow',
+    text: 'Water piles up on the outer bank and corkscrews across the bed to the inner bank. In this app the spiral is drawn from curvature, not computed from fluid dynamics.',
+  },
+  thalweg: {
+    title: 'Thalweg',
+    text: 'The line of deepest, fastest flow. It swings to the outside of each bend, which is why pools form there.',
+  },
+  pool: {
+    title: 'Pool',
+    text: 'Deep water scoured out on the outside of the bend by the fast thalweg.',
+  },
+  riffle: {
+    title: 'Riffle',
+    text: 'Shallow, faster water over gravel between bends, where the thalweg crosses from one side to the other.',
+  },
+  flood: {
+    title: 'Flood',
+    text: 'The river has overtopped its banks. Brown silty water spreads over the floodplain and leaves a layer of mud behind.',
+  },
+};

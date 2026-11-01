@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "meander",
+  "compatibility_date": "2026-09-01",
+  // Static site only: everything runs in the visitor's browser.
+  "assets": { "directory": "dist" },
+  "routes": [{ "pattern": "meander.clydeford.net", "custom_domain": true }],
+  "workers_dev": false
+}

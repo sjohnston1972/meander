@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Meander: 2D engine debug</title>
+    <style>
+      body { margin: 0; background: #111; color: #ddd; font-family: system-ui, sans-serif; }
+      #bar { padding: 8px 12px; display: flex; gap: 12px; align-items: center; font-size: 14px; }
+      canvas { display: block; margin: 0 auto; background: #1d2a1a; }
+      button { background: #333; color: #ddd; border: 1px solid #555; padding: 4px 10px; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <button id="play">Play</button>
+      <button id="step">Step 10 yr</button>
+      <button id="reset">Reset</button>
+      <label>Speed <input id="speed" type="range" min="1" max="200" value="20" /> <span id="speed-val">20</span> yr/s</label>
+      <span id="info"></span>
+    </div>
+    <canvas id="c" width="1200" height="600"></canvas>
+    <script type="module" src="/src/debug2d.js"></script>
+  </body>
+</html>
