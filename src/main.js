@@ -226,8 +226,10 @@ function start() {
     document.getElementById('desktop-only').classList.toggle('show', window.innerWidth < 1024);
   });
 
-  // Start playing once the worker is ready.
-  setTimeout(() => { sim.play(); controls.setPlaying(true); }, 300);
+  // Start playing once the worker is ready (unless the URL says ?autoplay=0).
+  if (new URLSearchParams(location.search).get('autoplay') !== '0') {
+    setTimeout(() => { sim.play(); controls.setPlaying(true); }, 300);
+  }
 
   let last = performance.now();
   let time = 0;

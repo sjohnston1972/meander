@@ -41,14 +41,15 @@ try {
   const errors = [];
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto(`http://localhost:${PORT}/#seed=1`);
+  await page.goto(`http://localhost:${PORT}/?autoplay=0#seed=1`);
   const title = await page.title();
   if (!/Meander/.test(title)) throw new Error(`wrong page served on port ${PORT}: ${title}`);
   await page.waitForFunction(() => window.meander && window.meander.snapshot, null, { timeout: 30000 });
 
   // Run the river forward and wait for the engine to report it.
-  await page.evaluate((y) => { window.meander.sim.pause(); window.meander.sim.step(y); }, YEAR);
+  await page.evaluate((y) => { window.meander.sim.step(y); }, YEAR);
   await page.waitForFunction((y) => window.meander.snapshot && window.meander.snapshot.year >= y, YEAR, { timeout: 120000 });
+  await page.evaluate(() => { window.meander.sim.pause(); window.meander.controls.setPlaying(false); });
   await page.waitForTimeout(1500);
 
   // CPU timings of the two heavy updates.

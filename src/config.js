@@ -203,7 +203,7 @@ export const RENDER = {
   surfaceColours: {
     0: 0x5d8a3a,           // GRASS
     1: 0xd2b97d,           // SAND
-    2: 0x7d5a3c,           // EARTH (cut bank)
+    2: 0x6f5a44,           // EARTH (cut bank)
     3: 0x4f7a4e,           // WETLAND
     4: 0x6e6a66,           // ROCK
     5: 0x2b4f5a,           // WATER (channel and lake bed, seen through the water)
