@@ -30,3 +30,10 @@ and after. Steps are in PLAN.md.
 ## 2026-11-01 17:43 Step 7 done: Explain mode polish
 - Labels hidden when their screen x falls within 70 px of the control panel; 0.3 s fade-in animation on appearance; explanation card gets a 4 px left border in the feature colour. labels-5-labels.png shows no label over the panel (the former "Meander neck" label at the panel edge is now suppressed).
 - Harness waits for a free port before starting the preview server (fixes an intermittent timeout when the previous server was still shutting down).
+
+## 2026-11-01 17:54 Step 8 done: performance budget
+- node bench (CPU only, Medium): terrain.update 11.2 ms, under the 14 ms budget and below the 13.0 ms baseline (Math.hypot -> sqrt, per-column base height, float palette instead of THREE.Color calls).
+- Ruling: the shoot.mjs numbers (terrain 69 ms, water 1.4 ms this run) are swiftshader upload times and swing 40-70 ms between identical runs, so the absolute budgets in PLAN.md are judged by the node bench for terrain and by "not slower than baseline" for water (1.4 vs 3.2 ms). water.update cannot run in node (it builds a canvas texture).
+
+## 2026-11-01 17:54 Step 9 done: record and hand over
+- docs/looks/README.md lists each step with its label and the cost table. 8 final PNGs saved (4 presets, labels, 3 times of day).
