@@ -6,10 +6,14 @@ export function createSim(settings) {
   const listeners = [];
   let playing = false;
   let ready = false;
+  let generation = 0;
 
   worker.onmessage = (e) => {
     const m = e.data;
-    if (m.type === 'snapshot') for (const cb of listeners) cb(m.data);
+    if (m.type === 'snapshot') {
+      if ((m.generation ?? 0) < generation) return; // from before the last reset
+      for (const cb of listeners) cb(m.data);
+    }
     else if (m.type === 'ready') ready = true;
   };
   worker.onerror = (err) => console.error('[meander] worker error', err.message || err);
@@ -26,7 +30,7 @@ export function createSim(settings) {
     step(years = 1) { worker.postMessage({ type: 'step', years }); },
     setSpeed(yearsPerSecond) { worker.postMessage({ type: 'speed', yearsPerSecond }); },
     applySettings(partial) { worker.postMessage({ type: 'settings', partial }); },
-    reset(settings) { worker.postMessage({ type: 'reset', settings }); },
+    reset(settings) { generation++; worker.postMessage({ type: 'reset', settings, generation }); },
     triggerFlood() { worker.postMessage({ type: 'flood' }); },
     paint(x, y, radius, on) { worker.postMessage({ type: 'paint', x, y, radius, on }); },
   };

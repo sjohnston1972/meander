@@ -36,8 +36,12 @@ export function createScene(canvas, settings) {
 
   const sun = new THREE.DirectionalLight(0xfff2dc, 2.4);
   sun.castShadow = true;
-  const q = QUALITY[settings.quality] || QUALITY.medium;
-  sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
+  function setQuality(name) {
+    const q = QUALITY[name] || QUALITY.medium;
+    sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
+    if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+  }
+  setQuality(settings.quality);
   const half = Math.max(VALLEY.length, VALLEY.width) * 0.55;
   sun.shadow.camera.left = -half; sun.shadow.camera.right = half;
   sun.shadow.camera.top = half; sun.shadow.camera.bottom = -half;
@@ -126,7 +130,7 @@ export function createScene(canvas, settings) {
     renderer.render(scene, camera);
   }
 
-  return { renderer, scene, camera, controls, sun, ground, render, setTimeOfDay, setFog, flyTo, focusOn, setGroundProbe };
+  return { renderer, scene, camera, controls, sun, ground, render, setTimeOfDay, setFog, flyTo, focusOn, setGroundProbe, setQuality };
 }
 
 // Engine coordinates (x downstream 0..L, y across 0..W, z height) to renderer space.

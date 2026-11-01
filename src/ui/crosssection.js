@@ -15,17 +15,25 @@ export function createCrossSection() {
   function hide() { panel.classList.remove('show'); current = null; }
 
   function show(snapshot, index) {
-    current = { snapshot, index };
+    const c = snapshot.centreline;
+    current = { snapshot, index, x: c.x[index], y: c.y[index] };
     draw(0);
     panel.classList.add('show');
   }
 
-  // Redraw with the latest snapshot (the river moves under the panel).
+  // Follow the latest snapshot: the river moves and is re-spaced under the
+  // panel, so find the point nearest the spot that was clicked each time.
   function refresh(snapshot) {
     if (!current) return;
-    const n = snapshot.centreline.x.length;
-    if (current.index >= n) { hide(); return; }
+    const c = snapshot.centreline;
+    let best = 0, bestD = Infinity;
+    for (let i = 0; i < c.x.length; i++) {
+      const d = (c.x[i] - current.x) ** 2 + (c.y[i] - current.y) ** 2;
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    if (Math.sqrt(bestD) > c.width * 1.5) { hide(); return; } // the river has left this spot
     current.snapshot = snapshot;
+    current.index = best;
   }
 
   function draw(dt) {
@@ -135,7 +143,7 @@ export function createCrossSection() {
     ctx.textAlign = outerRight ? 'left' : 'right';
     ctx.fillText(bend > 0.15 ? 'point bar (inner)' : 'bank', outerRight ? 10 : w - 10, groundY - 10);
 
-    title.textContent = `Cross-section at point ${index} (year ${Math.floor(snapshot.year)})`;
+    title.textContent = `Cross-section (year ${Math.floor(snapshot.year)})`;
     text.textContent = bend > 0.15
       ? `Bend: deepest water (the thalweg) sits towards the ${outerRight ? 'right' : 'left'} outer bank, ${D.toFixed(1)} m deep. Width ${W} m. Arrows show the helical flow: surface water pushed to the outer bank, bed water returning inside.`
       : `Straight reach between bends: a shallow riffle, ${D.toFixed(1)} m deep and ${W} m wide, with little cross-channel circulation.`;

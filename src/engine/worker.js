@@ -10,6 +10,7 @@ let last = 0;
 let lastSnapshot = 0;
 let timer = null;
 let dirty = true; // something changed since the last snapshot
+let generation = 0; // bumps on every reset so stale snapshots can be dropped
 
 function sendSnapshot() {
   if (!engine) return;
@@ -19,7 +20,7 @@ function sendSnapshot() {
     c.x.buffer, c.y.buffer, c.curvature.buffer, c.rate.buffer, c.level.buffer, c.depth.buffer, c.thalweg.buffer,
     g.height.buffer, g.surface.buffer, g.veg.buffer,
   ];
-  postMessage({ type: 'snapshot', data: snap }, transfer);
+  postMessage({ type: 'snapshot', data: snap, generation }, transfer);
   lastSnapshot = performance.now();
   dirty = false;
 }
@@ -59,6 +60,7 @@ self.onmessage = (e) => {
       sendSnapshot();
       break;
     case 'reset':
+      generation = m.generation ?? generation + 1;
       engine.reset(m.settings);
       acc = 0;
       sendSnapshot();
@@ -78,7 +80,7 @@ self.onmessage = (e) => {
     }
     case 'speed': yearsPerSecond = m.yearsPerSecond; break;
     case 'flood': engine.triggerFlood(); break;
-    case 'paint': engine.paint(m.x, m.y, m.radius, m.on); dirty = true; if (!playing) sendSnapshot(); break;
+    case 'paint': engine.paint(m.x, m.y, m.radius, m.on); dirty = true; break;
     default: break;
   }
 };

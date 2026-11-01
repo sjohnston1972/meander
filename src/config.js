@@ -140,7 +140,7 @@ export const CENTRELINE = {
 export const QUALITY = {
   low:    { cols: 256, rows: 128, shadowMap: 1024, trees: 3000,  grass: 6000,  particles: 1500 },
   medium: { cols: 512, rows: 256, shadowMap: 2048, trees: 8000,  grass: 16000, particles: 3000 },
-  high:   { cols: 1024, rows: 512, shadowMap: 4096, trees: 16000, grass: 32000, particles: 5000 },
+  high:   { cols: 1024, rows: 512, shadowMap: 4096, trees: 16000, grass: 32000, particles: 5000 }, // 5.9 m cells, ~8 per channel width
 };
 
 export const SURFACE = { GRASS: 0, SAND: 1, EARTH: 2, WETLAND: 3, ROCK: 4, WATER: 5, MARSH: 6 };

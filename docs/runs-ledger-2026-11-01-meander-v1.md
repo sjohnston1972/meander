@@ -34,3 +34,15 @@ Final: minor (deferred): rock the river cut into shows as sand afterwards (surfa
 Final: minor (deferred): small per-update allocations in water.js (level array per lake, now once per lake), trails.js, vegetation clumpNoise closure
 Final: minor (deferred): desktop-only width check only at load; no hashchange handler for links pasted into an open tab
 Final: minor (deferred): cross-browser determinism (Math.exp/sin differences between engines) untested
+
+Second fix pass (Steven asked to finish the review): deferred minors addressed where they touch a visitor.
+Final: fixed shadow map size now follows the quality setting on reset (scene.setQuality) — verified in Chrome (1024 after switching to Low)
+Final: fixed rock painting picks the ground with two plane intersections instead of raycasting the terrain mesh; paint strokes no longer post a snapshot each — verified in Chrome
+Final: fixed reset race with a generation id carried on every snapshot (sim.js drops stale ones) — code change, verified by reading
+Final: fixed cross-section panel follows the clicked spot across cutoffs and re-spacing, and closes if the river leaves it — verified in Chrome (year 750 to 800)
+Final: fixed share link pasted into an open tab applies via hashchange and resets — verified in Chrome
+Final: fixed desktop-only message now also appears when the window is resized below 1024 px — code change
+Final: fixed per-call closure in vegetation clumpNoise hoisted — code change
+Final: Ruling: High grid stays 1024x512 (documented in config.js) — 5.9 m cells give ~8 cells per channel width; cost if wrong: slower terrain updates on High (throttled to 4 Hz)
+Final: minor (deferred): cross-browser determinism (Math.exp/sin differences) untested; needs Firefox on a real display
+Final: minor (deferred): rock the river has cut into keeps its hardness but reads as sand once abandoned — already shows ROCK on abandon since the fix pass; only the carved bed shows as water

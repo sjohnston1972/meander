@@ -13,13 +13,13 @@ function hash(i, salt) {
 }
 
 // Cheap smooth value noise on the cell grid, so woodland comes in clumps.
+const corner = (i, j) => hash(i * 7919 + j * 104729, 99);
 function clumpNoise(cx, cy, scale) {
   const x = cx / scale, y = cy / scale;
   const x0 = Math.floor(x), y0 = Math.floor(y);
   const fx = x - x0, fy = y - y0;
   const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
-  const h = (i, j) => hash(i * 7919 + j * 104729, 99);
-  const a = h(x0, y0), b = h(x0 + 1, y0), c = h(x0, y0 + 1), d = h(x0 + 1, y0 + 1);
+  const a = corner(x0, y0), b = corner(x0 + 1, y0), c = corner(x0, y0 + 1), d = corner(x0 + 1, y0 + 1);
   return (a + (b - a) * sx) * (1 - sy) + (c + (d - c) * sx) * sy;
 }
 

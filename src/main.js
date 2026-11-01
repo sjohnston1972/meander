@@ -86,6 +86,7 @@ function start() {
     pendingReset.clear();
     controls.showResetNote('');
     snapshot = null;
+    view.setQuality(settings.quality);
     sim.reset(settings);
     section.hide();
     toast('Reset');
@@ -186,15 +187,43 @@ function start() {
     const idx = water.nearestIndex(hit.point.x, hit.point.z);
     if (idx >= 0) section.show(snapshot, idx);
   });
+  // Ground point under the mouse without raycasting the whole terrain mesh:
+  // intersect a horizontal plane, then once more at the ground height found there.
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const planeHit = new THREE.Vector3();
+  function pickGround(e) {
+    ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+    raycaster.setFromCamera(ndc, view.camera);
+    plane.constant = 0;
+    if (!raycaster.ray.intersectPlane(plane, planeHit)) return null;
+    plane.constant = -groundHeight(planeHit.x + VALLEY.length / 2, planeHit.z + VALLEY.width / 2);
+    if (!raycaster.ray.intersectPlane(plane, planeHit)) return null;
+    return planeHit;
+  }
   function paintAt(e) {
-    const hit = pick(e, [terrain.mesh]);
+    const hit = pickGround(e);
     if (!hit) return;
-    const x = hit.point.x + VALLEY.length / 2, y = hit.point.z + VALLEY.width / 2;
+    const x = hit.x + VALLEY.length / 2, y = hit.z + VALLEY.width / 2;
     sim.paint(x, y, settings.channelWidth * FLOODPLAIN.rockRadiusWidths * 0.5, !e.shiftKey);
   }
   canvas.addEventListener('dblclick', (e) => {
     const hit = pick(e, [terrain.mesh]);
     if (hit) view.focusOn(hit.point);
+  });
+
+  // Share links pasted into this open tab, and windows that shrink below the desktop size.
+  window.addEventListener('hashchange', () => {
+    const next = decodeSettings(location.hash, defaults);
+    if (JSON.stringify(next) === JSON.stringify(settings)) return;
+    Object.assign(settings, next);
+    controls.refresh('Custom');
+    view.setTimeOfDay(settings.timeOfDay);
+    view.setFog(settings.fog);
+    reset();
+    toast('Loaded river from link');
+  });
+  window.addEventListener('resize', () => {
+    document.getElementById('desktop-only').classList.toggle('show', window.innerWidth < 1024);
   });
 
   // Start playing once the worker is ready.
