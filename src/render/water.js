@@ -53,9 +53,9 @@ function makeRibbon(material) {
 // Write one polyline as a ribbon into `mesh` starting at point offset `start`.
 // colourFn(i, u01) fills tmp with the colour for point i at cross position u01 (0..1).
 // Returns the next free point index.
-function writeRibbon(mesh, start, x, y, level, width, exaggeration, colourFn, arcOffset = 0, lift = 0) {
+function writeRibbon(mesh, start, x, y, level, width, exaggeration, colourFn, arcOffset = 0, lift = 0, capacity = MAX_POINTS) {
   const n = x.length;
-  if (n < 2 || start + n > MAX_POINTS) return start;
+  if (n < 2 || start + n > capacity) return start;
   const pos = mesh.geometry.attributes.position.array;
   const col = mesh.geometry.attributes.color.array;
   const uv = mesh.geometry.attributes.uv.array;
@@ -96,10 +96,17 @@ function writeRibbon(mesh, start, x, y, level, width, exaggeration, colourFn, ar
 function finishRibbon(mesh, points, segmentsUsed) {
   const g = mesh.geometry;
   g.setDrawRange(0, segmentsUsed * (ACROSS - 1) * 6);
-  g.attributes.position.needsUpdate = true;
-  g.attributes.color.needsUpdate = true;
-  g.attributes.uv.needsUpdate = true;
-  g.index.needsUpdate = true;
+  const verts = points * ACROSS;
+  for (const [name, size] of [['position', 3], ['color', 3], ['uv', 2]]) {
+    const a = g.attributes[name];
+    a.clearUpdateRanges();
+    a.addUpdateRange(0, verts * size);
+    a.needsUpdate = true;
+  }
+  if (mesh.userData.indexedPoints !== points) {
+    g.index.needsUpdate = true;
+    mesh.userData.indexedPoints = points;
+  }
   mesh.visible = points > 1;
 }
 
@@ -120,7 +127,29 @@ export function createWater() {
 
   const river = makeRibbon(riverMaterial);
   river.renderOrder = 2;
-  const lakePool = [];
+  const lakes = new Map();
+
+  // A fixed ribbon for one oxbow loop, with its own material for tinting.
+  function buildLake(o, exaggeration) {
+    const n = o.x.length;
+    const geometry = new THREE.BufferGeometry();
+    const verts = n * ACROSS;
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts * 3), 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(verts * 3), 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(verts * 3), 3));
+    geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(verts * 2), 2));
+    geometry.setIndex(new THREE.BufferAttribute(new Uint32Array((n - 1) * (ACROSS - 1) * 6), 1));
+    const nor = geometry.attributes.normal.array;
+    for (let i = 0; i < verts; i++) nor[i * 3 + 1] = 1;
+    const mesh = new THREE.Mesh(geometry, lakeMaterial.clone());
+    mesh.renderOrder = 1;
+    mesh.receiveShadow = true;
+    mesh.frustumCulled = false;
+    const lvl = new Float32Array(n).fill(o.level);
+    const used = writeRibbon(mesh, 0, o.x, o.y, lvl, o.width, exaggeration, () => { tmp.set(0xffffff); }, 0, 0, n);
+    finishRibbon(mesh, used, used - 1);
+    return { mesh, exaggeration };
+  }
 
   // Flood sheet: follows the valley slope, flat across the valley.
   const FX = 64;
@@ -160,20 +189,32 @@ export function createWater() {
     finishRibbon(river, used, Math.max(0, used - 1));
     riverMaterial.opacity = opacity;
 
-    // Oxbows: one pooled ribbon mesh per lake.
-    for (let k = 0; k < snapshot.oxbows.length; k++) {
-      const o = snapshot.oxbows[k];
-      if (!lakePool[k]) { lakePool[k] = makeRibbon(lakeMaterial); lakePool[k].renderOrder = 1; group.add(lakePool[k]); }
-      const mesh = lakePool[k];
+    // Oxbows never change shape, so each lake ribbon is built once (keyed by
+    // the oxbow id) and only its tint and height change after.
+    const seen = new Set();
+    for (const o of snapshot.oxbows) {
+      const key = o.id;
+      seen.add(key);
+      let lake = lakes.get(key);
+      if (!lake) {
+        lake = buildLake(o, exaggeration);
+        lakes.set(key, lake);
+        group.add(lake.mesh);
+      }
       const t = Math.min(1, o.depth / snapshot.settings.channelDepth);
       const marsh = o.depth < FLOODPLAIN.oxbowMarshDepth ? 1 - o.depth / FLOODPLAIN.oxbowMarshDepth : 0;
-      const lvl = new Float32Array(o.x.length).fill(o.level);
-      const lakeFn = () => { tmp.copy(lakeColour).lerp(marshColour, (1 - t) * 0.5 + marsh * 0.5); };
-      const used = writeRibbon(mesh, 0, o.x, o.y, lvl, o.width * (0.75 + 0.25 * t), exaggeration, lakeFn, 0, 0.04 + floodLift * 0.5);
-      finishRibbon(mesh, used, Math.max(0, used - 1));
+      lake.mesh.material.color.copy(lakeColour).lerp(marshColour, (1 - t) * 0.5 + marsh * 0.5);
+      lake.mesh.material.opacity = opacity * (0.95 - marsh * 0.35);
+      lake.mesh.position.y = (exaggeration - lake.exaggeration) * o.level + 0.04 + floodLift * 0.5;
+      lake.mesh.visible = true;
     }
-    for (let k = snapshot.oxbows.length; k < lakePool.length; k++) lakePool[k].visible = false;
-    lakeMaterial.opacity = opacity * 0.95;
+    for (const [key, lake] of lakes) {
+      if (seen.has(key)) continue;
+      group.remove(lake.mesh);
+      lake.mesh.geometry.dispose();
+      lake.mesh.material.dispose();
+      lakes.delete(key);
+    }
 
     // Flood sheet.
     if (f > 0) {
@@ -211,5 +252,5 @@ export function createWater() {
     return Math.sqrt(bestD) < c.width * 1.5 ? best : -1;
   }
 
-  return { group, river, flood, update, animate, nearestIndex };
+  return { group, river, flood, update, animate, nearestIndex, get lakeCount() { return lakes.size; } };
 }

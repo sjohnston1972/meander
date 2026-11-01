@@ -196,7 +196,7 @@ export function findChuteCutoff(x, y, c, rng, chance, ds, W, endProtection) {
   const n = x.length;
   const minSep = Math.round((CENTRELINE.chuteMinWidths * W) / ds);
   const maxSep = Math.round((CENTRELINE.chuteMaxWidths * W) / ds);
-  const maxDist = CENTRELINE.chuteMaxDistanceWidths * W;
+  const chord = CENTRELINE.chuteChordFraction;
   const minCurv = CENTRELINE.chuteMinCurvature / W;
   for (let a = endProtection + 1; a < n - endProtection - 1; a++) {
     const ca = Math.abs(c[a]);
@@ -209,7 +209,8 @@ export function findChuteCutoff(x, y, c, rng, chance, ds, W, endProtection) {
         const sep = j - i;
         if (sep < minSep) continue;
         const d = Math.hypot(x[j] - x[i], y[j] - y[i]);
-        if (d < maxDist && (!best || sep > best.j - best.i)) best = { i, j };
+        // A real shortcut: the straight line is much shorter than the river path it replaces.
+        if (d <= chord * sep * ds && (!best || sep > best.j - best.i)) best = { i, j };
       }
     }
     if (best) return best;

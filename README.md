@@ -43,6 +43,26 @@ docs/              spec and plans
 
 See `SPEC.md` for the full build spec.
 
+## Acceptance checks (v1, 2026-11-01)
+
+Checked in Chrome on the live site unless noted. "Unit test" means `npm test` covers it.
+
+| Check | Result |
+| --- | --- |
+| Steady 60 fps at 1920x1080 on default settings | Not measurable in the automated browser used for the build (its frame timer was throttled to 2 fps even on a blank page). CPU cost per frame is small; needs a check on a normal display. |
+| A nearly straight river develops clear meanders within two minutes | Yes. First neck cutoff between years 700 and 2000 depending on seed (unit test: at least two neck cutoffs in 2000 years). |
+| Outer banks erode and inner banks build point bars, visibly | Yes: bare-earth cut banks and sandy point bars, labelled in Explain mode. |
+| A neck cutoff leaves an oxbow lake and the river carries on | Yes (unit tests: cutoff splice, lake bed below lake level, river cells below water). |
+| Oxbows infill to marsh over time | Yes: lake tints green, surface turns to wetland then marsh, label changes to "Infilled oxbow". |
+| Floods raise water, leave levees, can cause chute cutoffs | Yes (unit tests: flood flag, levee build, chute only during floods). |
+| Same seed and settings produce the same river | Unit test (two engines, 500 ticks, identical). |
+| A copied share link reopens the same river and settings | Yes; unit tests cover round trip, garbage, out-of-range and bad encoding. |
+| Pause, step, speed and reset all work; speed does not change the outcome | Yes; unit test for batching. |
+| Every control has a hover explanation | Yes, from `HELP` in config.js. |
+| Explain mode labels cut bank, point bar, oxbow, levee and scroll bars | Yes, plus neck, pool, riffle, helical flow (with the honesty note), marsh and flood. |
+| Windows under 1024 px wide show the desktop-only message | Yes (checked at load; resizing an open window does not re-check). |
+| No errors in the browser console during a 10-minute run | No errors seen in runs of several thousand simulated years; a timed 10-minute soak was not done. |
+
 ## Future work (out of scope for v1)
 
 Braided rivers, terraces from base-level fall, man-made features such as bridges and embankments, mobile and touch support.

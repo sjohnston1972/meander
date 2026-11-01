@@ -10,7 +10,7 @@ import {
   migrationRate, migrate, findNeckCutoff, spliceCutoff, findChuteCutoff,
 } from './centreline.js';
 import {
-  createGrid, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear,
+  createGrid, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth,
 } from './floodplain.js';
 
 export class Engine {
@@ -26,6 +26,7 @@ export class Engine {
     const { x, y } = initialCentreline(this.settings, this.rng);
     this.x = x; this.y = y;
     this.oxbows = [];
+    this.oxbowCount = 0;
     this.events = [];
     this.history = [];          // [{ year, x: Float32Array, y: Float32Array }]
     this.lastHistoryYear = -Infinity;
@@ -47,7 +48,15 @@ export class Engine {
   // Settings that apply from the next tick without a reset.
   applySettings(partial) {
     Object.assign(this.settings, partial);
+    if (partial.valleySlope !== undefined || partial.bankHeight !== undefined) {
+      rebase(this.grid, this.settings);
+      this.computeLevels();
+    }
   }
+
+  static helpers = { sampleErodibility, effectiveDepth };
+
+  get depth() { return effectiveDepth(this.settings); }
 
   triggerFlood() { this.floodPending = true; }
 
@@ -62,7 +71,7 @@ export class Engine {
     const s = this.settings;
     const arc = arcLength(this.x, this.y);
     const total = arc[arc.length - 1] || 1;
-    const top = s.valleySlope * VALLEY.length + s.channelDepth;
+    const top = s.valleySlope * VALLEY.length + this.depth;
     const fall = s.valleySlope * VALLEY.length;
     const n = this.x.length;
     const level = new Float64Array(n);
@@ -199,6 +208,7 @@ export class Engine {
       curvature: this.curv.length === n ? this.curv : new Float64Array(n),
       rate: this.rate.length === n ? this.rate : new Float64Array(n),
       level: this.level,
+      dt: DT,
     };
     stampChannel(this.grid, river, this.settings, this.year, this.flood);
   }
@@ -214,8 +224,8 @@ export class Engine {
       const sign = rate[i] > 0 ? 1 : -1;
       const slump = (FLOODS.collapseSlump * (k[i] / base || 0)) / DT;
       rate[i] += sign * slump;
-      if (i > 0) rate[i - 1] += sign * slump * 0.5;
-      if (i < n - 1) rate[i + 1] += sign * slump * 0.5;
+      if (i > prot) rate[i - 1] += sign * slump * 0.5;
+      if (i < n - 1 - prot) rate[i + 1] += sign * slump * 0.5;
       // Strip vegetation around the failed bank.
       const W = s.channelWidth;
       const r = FLOODS.collapseVegStripRadius * W;
@@ -245,18 +255,21 @@ export class Engine {
     for (let p = 0; p < loop.x.length; p++) { cx += loop.x[p]; cy += loop.y[p]; }
     cx /= loop.x.length; cy /= loop.x.length;
     const oxbow = {
+      id: ++this.oxbowCount,
       x: Float32Array.from(loop.x), y: Float32Array.from(loop.y),
-      age: 0, depth: s.channelDepth, width: s.channelWidth, year: this.year, cx, cy, level,
+      age: 0, depth: this.depth, width: s.channelWidth, year: this.year, cx, cy, level,
       cells: cellsNear(this.grid, loop.x, loop.y, s.channelWidth / 2),
-      lastStampDepth: s.channelDepth,
+      lastStampDepth: this.depth,
     };
     this.oxbows.push(oxbow);
+    // Carve the lake bed now, before the channel stamp turns the loop into point bar.
+    stampOxbow(this.grid, oxbow, s, true);
     this.events.push({ type, x: this.x[i], y: this.y[i], year: this.year });
   }
 
   ageOxbows() {
     const s = this.settings;
-    const rate = (s.channelDepth / FLOODPLAIN.oxbowInfillYears) * s.infillRate * DT;
+    const rate = (this.depth / FLOODPLAIN.oxbowInfillYears) * s.infillRate * DT;
     for (let k = this.oxbows.length - 1; k >= 0; k--) {
       const o = this.oxbows[k];
       o.age += DT;
@@ -369,7 +382,7 @@ export class Engine {
     const depth = new Float32Array(n), thalweg = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       const bend = Math.min(1, Math.abs(curv[i]) * W * THALWEG.curvatureScale);
-      depth[i] = s.channelDepth * (1 + THALWEG.poolFactor * bend);
+      depth[i] = this.depth * (1 + THALWEG.poolFactor * bend);
       thalweg[i] = (curv[i] > 0 ? 1 : -1) * THALWEG.shiftFraction * (W / 2) * bend;
     }
     const g = this.grid;
@@ -387,9 +400,9 @@ export class Engine {
         level: Float32Array.from(this.level.length === n ? this.level : new Float64Array(n)),
         depth, thalweg,
         width: W,
-        meanDepth: s.channelDepth,
+        meanDepth: this.depth,
       },
-      oxbows: this.oxbows.map((o) => ({ x: o.x, y: o.y, age: o.age, depth: o.depth, width: o.width, cx: o.cx, cy: o.cy, level: o.level })),
+      oxbows: this.oxbows.map((o) => ({ id: o.id, year: o.year, x: o.x, y: o.y, age: o.age, depth: o.depth, width: o.width, cx: o.cx, cy: o.cy, level: o.level })),
       events: this.events,
       trails: this.trails(),
       features: this.features,
@@ -399,7 +412,7 @@ export class Engine {
         surface: Uint8Array.from(g.surface),
         veg: veg8,
       },
-      settings: { channelWidth: W, channelDepth: s.channelDepth, bankHeight: s.bankHeight, valleySlope: s.valleySlope },
+      settings: { channelWidth: W, channelDepth: this.depth, bankHeight: s.bankHeight, valleySlope: s.valleySlope },
     };
     this.events = [];
     return snap;

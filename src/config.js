@@ -60,7 +60,44 @@ export const defaults = {
 };
 
 // Settings that need a full reset to take effect (the panel says so).
-export const RESET_KEYS = ['seed', 'startShape', 'quality'];
+export const RESET_KEYS = ['seed', 'startShape', 'quality', 'hardRock'];
+
+// Slider ranges [min, max, step] for every numeric setting. The control panel
+// and the share-link decoder both use these, so a link can never smuggle in a
+// value the sliders would not allow.
+export const RANGES = {
+  seed: [1, 99999, 1],
+  yearsPerSecond: [0.5, 100, 0.5],
+  meanDischarge: [10, 1000, 5],
+  floodFrequency: [0, 20, 0.5],
+  floodSize: [1.2, 8, 0.1],
+  channelWidth: [20, 150, 1],
+  channelDepth: [1, 8, 0.1],
+  valleySlope: [0.0001, 0.002, 0.00005],
+  sedimentSupply: [0.2, 3, 0.1],
+  erodibility: [0.1, 3, 0.05],
+  bankHeight: [1.5, 8, 0.1],
+  patchiness: [0, 1, 0.05],
+  vegGrowth: [0, 3, 0.1],
+  rootStrength: [0, 1, 0.05],
+  vegDensity: [0, 2, 0.1],
+  cutoffDistance: [0.5, 3, 0.1],
+  chuteChance: [0, 1, 0.05],
+  infillRate: [0.1, 5, 0.1],
+  omega: [-3, 1, 0.1],
+  gamma: [0, 5, 0.1],
+  alpha: [0.002, 0.06, 0.001],
+  waterOpacity: [0.2, 1, 0.05],
+  exaggeration: [1, 6, 0.1],
+  timeOfDay: [6, 18, 0.1],
+  fog: [0, 1, 0.05],
+};
+
+// Allowed values for the string settings.
+export const CHOICES = {
+  startShape: ['wiggle', 'straight', 'sine'],
+  quality: ['low', 'medium', 'high'],
+};
 
 // --- Valley geometry ---
 export const VALLEY = {
@@ -87,12 +124,13 @@ export const CENTRELINE = {
   maxRate: 12,             // m/yr cap on migration at any point (keeps the model stable)
   bankNoise: 0.05,         // random lateral wobble per step as a fraction of the migration scale
   minSeparationWidths: 4,  // neck cutoff only between reaches this far apart along the river
+  depthBelowBank: 0.5,     // the channel is never deeper than bank height minus this (metres)
   endProtection: 6,        // points at each end that never migrate or cut off
   wallMarginWidths: 8,     // erodibility fades to zero this many widths from the valley walls
   outletFadeFraction: 0.12, // fraction of valley length before the outlet where migration fades out
-  chuteMinWidths: 3,       // chute cutoff shortcut must span at least this many widths of river
-  chuteMaxWidths: 12,      // ... and at most this many
-  chuteMaxDistanceWidths: 3, // chute only where the two reaches are within this many widths
+  chuteMinWidths: 6,       // chute cutoff must short-cut at least this many widths of river
+  chuteMaxWidths: 14,      // ... and at most this many
+  chuteChordFraction: 0.4, // the shortcut must be no longer than this fraction of the river path it replaces
   chuteMinCurvature: 0.6,  // curvature × width above which a bend counts as "tight"
   trailInterval: 10,       // years between stored history centrelines
   trailAges: [50, 100, 200], // history trails to show, years ago

@@ -83,6 +83,10 @@ export function createScene(canvas, settings) {
   }
   setFog(settings.fog);
 
+  // Ground height probe (world x, z) supplied by the terrain, for the camera floor.
+  let groundProbe = null;
+  function setGroundProbe(fn) { groundProbe = fn; }
+
   // Smooth camera moves between presets.
   let tween = null;
   function flyTo(pos, target, seconds = RENDER.cameraTween) {
@@ -117,11 +121,12 @@ export function createScene(canvas, settings) {
     }
     controls.update();
     // Never let the camera dip below the ground.
-    if (camera.position.y < 4) camera.position.y = 4;
+    const floor = (groundProbe ? groundProbe(camera.position.x, camera.position.z) : 0) + 4;
+    if (camera.position.y < floor) camera.position.y = floor;
     renderer.render(scene, camera);
   }
 
-  return { renderer, scene, camera, controls, sun, ground, render, setTimeOfDay, setFog, flyTo, focusOn };
+  return { renderer, scene, camera, controls, sun, ground, render, setTimeOfDay, setFog, flyTo, focusOn, setGroundProbe };
 }
 
 // Engine coordinates (x downstream 0..L, y across 0..W, z height) to renderer space.

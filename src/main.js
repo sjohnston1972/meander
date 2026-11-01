@@ -47,6 +47,7 @@ function start() {
   const hudYear = document.getElementById('year');
   const hudFlood = document.getElementById('flood-hud');
   const groundHeight = (x, y) => (snapshot ? terrain.heightAt(snapshot, x, y, settings.exaggeration) : 0);
+  view.setGroundProbe((wx, wz) => groundHeight(wx + VALLEY.length / 2, wz + VALLEY.width / 2));
 
   function refreshTerrain(force = false) {
     if (!snapshot) return;
@@ -57,7 +58,7 @@ function start() {
       lastTerrainAt = now;
     }
     if (force || now - lastVegAt >= 1000 / RENDER.vegetationHz) {
-      vegetation.update(snapshot, settings.vegDensity, settings.exaggeration);
+      vegetation.update(snapshot, settings.vegDensity, settings.exaggeration, quality());
       lastVegAt = now;
     }
   }
@@ -115,6 +116,8 @@ function start() {
       }
     },
     applyPreset(name) {
+      // Presets are absolute: restore the defaults for every key any preset touches first.
+      for (const p of Object.values(PRESETS)) for (const k of Object.keys(p)) settings[k] = defaults[k];
       Object.assign(settings, PRESETS[name]);
       controls.refresh(name);
       sim.applySettings(settings);

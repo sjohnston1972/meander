@@ -1,4 +1,5 @@
 // Settings to and from the URL hash, and screenshots.
+import { RANGES, CHOICES } from '../config.js';
 
 const SEP = '&';
 
@@ -21,17 +22,22 @@ export function decodeSettings(hash, defaults) {
   for (const part of text.split(SEP)) {
     const eq = part.indexOf('=');
     if (eq <= 0) continue;
-    const key = part.slice(0, eq), raw = decodeURIComponent(part.slice(eq + 1));
+    const key = part.slice(0, eq);
     if (!(key in defaults)) continue;
+    let raw;
+    try { raw = decodeURIComponent(part.slice(eq + 1)); } catch { continue; }
     const d = defaults[key];
     if (typeof d === 'number') {
       const n = Number(raw);
-      if (Number.isFinite(n)) out[key] = n;
+      if (!Number.isFinite(n)) continue;
+      const r = RANGES[key];
+      out[key] = r ? Math.min(r[1], Math.max(r[0], n)) : n;
     } else if (typeof d === 'boolean') {
       if (raw === '1' || raw === 'true') out[key] = true;
       else if (raw === '0' || raw === 'false') out[key] = false;
     } else if (typeof d === 'string') {
-      if (raw.length > 0 && raw.length < 40) out[key] = raw;
+      const allowed = CHOICES[key];
+      if (allowed ? allowed.includes(raw) : raw.length > 0 && raw.length < 40) out[key] = raw;
     }
   }
   return out;

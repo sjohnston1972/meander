@@ -14,7 +14,7 @@ function straightRiver(yPos, settings) {
   for (let i = 0; i < n; i++) { x[i] = (i / (n - 1)) * VALLEY.length; y[i] = yPos; }
   const level = new Float64Array(n);
   for (let i = 0; i < n; i++) level[i] = baseLevel(x[i], settings) - settings.bankHeight + settings.channelDepth;
-  return { x, y, curvature: new Float64Array(n), rate: new Float64Array(n), level };
+  return { x, y, curvature: new Float64Array(n), rate: new Float64Array(n), level, dt: DT };
 }
 
 describe('createGrid', () => {

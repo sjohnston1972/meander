@@ -65,10 +65,12 @@ export function createVegetation(maxTrees, maxGrass) {
   const canopyA = new THREE.Color(RENDER.treeColour);
   const canopyB = new THREE.Color(0x6f9a3c);
 
-  function update(snapshot, density, exaggeration) {
+  // `limits` caps the counts for the current quality setting (buffers are sized for High).
+  function update(snapshot, density, exaggeration, limits = { trees: maxTrees, grass: maxGrass }) {
     const g = snapshot.grid;
     const { cols, rows, cell, height, surface, veg } = g;
-    const cellsPerTree = Math.max(1, Math.floor((cols * rows) / (maxTrees * 1.5)));
+    const treeCap = Math.min(maxTrees, limits.trees), grassCap = Math.min(maxGrass, limits.grass);
+    const cellsPerTree = Math.max(1, Math.floor((cols * rows) / (treeCap * 1.5)));
     let t = 0, gr = 0;
     const treeProb = 0.7 * density;
     const grassProb = 0.5 * density;
@@ -83,7 +85,7 @@ export function createVegetation(maxTrees, maxGrass) {
       const wy = height[i] * exaggeration;
       const clump = clumpNoise(cx, cy, cols / 18);
       const woodland = Math.max(0, (clump - 0.42) * 2.4); // 0 in open grassland, ~1 in the heart of a wood
-      if (t < maxTrees && i % cellsPerTree === 0 && v > FLOODPLAIN.vegTreeThreshold && h1 < (v - FLOODPLAIN.vegTreeThreshold) * 2.5 * treeProb * (0.08 + woodland)) {
+      if (t < treeCap && i % cellsPerTree === 0 && v > FLOODPLAIN.vegTreeThreshold && h1 < (v - FLOODPLAIN.vegTreeThreshold) * 2.5 * treeProb * (0.08 + woodland)) {
         const sc = 0.8 + hash(i, 4) * 0.7;
         dummy.position.set(wx, wy, wz);
         dummy.scale.set(sc, sc * (0.9 + hash(i, 5) * 0.4), sc);
@@ -93,7 +95,7 @@ export function createVegetation(maxTrees, maxGrass) {
         colour.copy(canopyA).lerp(canopyB, hash(i, 7));
         trees.setColorAt(t, colour);
         t++;
-      } else if (gr < maxGrass && v > 0.15 && v < 0.75 && hash(i, 8) < grassProb * (s === SURFACE.SAND ? 0.6 : 0.3)) {
+      } else if (gr < grassCap && v > 0.15 && v < 0.75 && hash(i, 8) < grassProb * (s === SURFACE.SAND ? 0.6 : 0.3)) {
         const sc = 0.8 + hash(i, 9) * 0.8;
         dummy.position.set(wx, wy, wz);
         dummy.scale.set(sc, sc, sc);

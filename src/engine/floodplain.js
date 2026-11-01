@@ -2,12 +2,17 @@
 // type, an erodibility multiplier and a vegetation value. The channel is carved
 // into it every step; land the channel leaves behind becomes point bar; floods
 // build levees; low ground slowly rises back to floodplain level.
-import { VALLEY, QUALITY, SURFACE, FLOODPLAIN, THALWEG } from '../config.js';
+import { VALLEY, QUALITY, SURFACE, FLOODPLAIN, THALWEG, CENTRELINE } from '../config.js';
 import { createNoise2D } from './random.js';
 
 // Floodplain top (no noise) at distance x down the valley.
 export function baseLevel(x, settings) {
   return settings.valleySlope * (VALLEY.length - x) + settings.bankHeight;
+}
+
+// Channel depth actually used: never deeper than the banks allow.
+export function effectiveDepth(settings) {
+  return Math.min(settings.channelDepth, settings.bankHeight - CENTRELINE.depthBelowBank);
 }
 
 export function cellIndex(grid, x, y) {
@@ -23,15 +28,20 @@ export function createGrid(settings, rng) {
   const grid = {
     cols, rows, cell,
     height: new Float32Array(n),     // ground height, metres
-    base: new Float32Array(n),       // original floodplain height (aggradation target)
+    base: new Float32Array(n),       // floodplain height for the current slope and bank height (aggradation target)
+    relief: new Float32Array(n),     // gentle random relief baked into base
     surface: new Uint8Array(n),      // SURFACE code
-    erod: new Float32Array(n),       // erodibility multiplier
+    patch: new Float32Array(n),      // ground patchiness noise, 0..1 (erodibility = 1 ± patchiness)
+    rock: new Uint8Array(n),         // 1 = hard rock
     veg: new Float32Array(n),        // vegetation 0..1
-    channel: new Uint8Array(n),      // 1 = river this step, 2 = oxbow lake
+    channel: new Uint8Array(n),      // 1 = river this step, 2 = oxbow lake, 3 = river last step (transient)
+    lakeLost: new Uint8Array(n),     // 1 = an oxbow cell the river has since taken back
     chanList: [],                    // indices of river cells this step
     chanLevel: new Float32Array(n),  // water level last time the cell was channel
-    stamp: new Uint32Array(n),       // per-step visit marker
+    stamp: new Uint32Array(n),       // per-call visit marker
     stampId: 1,
+    slope: settings.valleySlope,
+    bankHeight: settings.bankHeight,
   };
   const relief = createNoise2D(settings.seed * 104729 + 3);
   const cover = createNoise2D(settings.seed * 15485863 + 11);
@@ -41,13 +51,13 @@ export function createGrid(settings, rng) {
     for (let cx = 0; cx < cols; cx++) {
       const i = cy * cols + cx;
       const x = (cx + 0.5) * cell, y = (cy + 0.5) * cell;
-      const h = baseLevel(x, settings) + (relief(x / FLOODPLAIN.reliefScale, y / FLOODPLAIN.reliefScale) - 0.5) * 2 * FLOODPLAIN.baseNoise;
+      grid.relief[i] = (relief(x / FLOODPLAIN.reliefScale, y / FLOODPLAIN.reliefScale) - 0.5) * 2 * FLOODPLAIN.baseNoise;
+      const h = baseLevel(x, settings) + grid.relief[i];
       grid.base[i] = h;
       grid.height[i] = h;
       grid.surface[i] = SURFACE.GRASS;
       grid.veg[i] = Math.min(1, Math.max(0, 0.55 + (cover(x / 200 + 7, y / 200 + 3) - 0.5) * 1.2));
-      const e = 1 + (patch(x / nScale, y / nScale) - 0.5) * 2 * settings.patchiness;
-      grid.erod[i] = Math.min(2, Math.max(0.15, e));
+      grid.patch[i] = patch(x / nScale, y / nScale);
     }
   }
   if (settings.hardRock) {
@@ -61,6 +71,23 @@ export function createGrid(settings, rng) {
   return grid;
 }
 
+// Valley slope or bank height changed mid-run: move the whole floodplain with
+// the new base so bars, levees and scars keep their relative relief.
+export function rebase(grid, settings) {
+  if (grid.slope === settings.valleySlope && grid.bankHeight === settings.bankHeight) return;
+  const { cols, rows, cell, base, height, relief } = grid;
+  for (let cy = 0; cy < rows; cy++) {
+    for (let cx = 0; cx < cols; cx++) {
+      const i = cy * cols + cx;
+      const nb = baseLevel((cx + 0.5) * cell, settings) + relief[i];
+      height[i] += nb - base[i];
+      base[i] = nb;
+    }
+  }
+  grid.slope = settings.valleySlope;
+  grid.bankHeight = settings.bankHeight;
+}
+
 // Paint (or clear) a disc of hard rock.
 export function paintRock(grid, x, y, radius, on) {
   const { cols, rows, cell } = grid;
@@ -72,12 +99,12 @@ export function paintRock(grid, x, y, radius, on) {
     const i = cy * cols + cx;
     if (grid.channel[i]) continue;
     if (on) {
-      grid.erod[i] = FLOODPLAIN.rockErodibility;
+      grid.rock[i] = 1;
       grid.surface[i] = SURFACE.ROCK;
       grid.veg[i] = 0;
       if (grid.height[i] < grid.base[i]) grid.height[i] = grid.base[i];
-    } else if (grid.surface[i] === SURFACE.ROCK) {
-      grid.erod[i] = 1;
+    } else if (grid.rock[i]) {
+      grid.rock[i] = 0;
       grid.surface[i] = SURFACE.GRASS;
     }
   }
@@ -86,7 +113,9 @@ export function paintRock(grid, x, y, radius, on) {
 // Erodibility at a bank position: ground patchiness, rock, and plant roots.
 export function sampleErodibility(grid, x, y, settings) {
   const i = cellIndex(grid, x, y);
-  return grid.erod[i] * (1 - settings.rootStrength * grid.veg[i]);
+  const ground = grid.rock[i] ? FLOODPLAIN.rockErodibility
+    : Math.min(2, Math.max(0.15, 1 + (grid.patch[i] - 0.5) * 2 * settings.patchiness));
+  return ground * (1 - settings.rootStrength * grid.veg[i]);
 }
 
 // Visit every cell within `radius` of a polyline, calling fn(cellIndex, u, t, segIndex)
@@ -114,9 +143,14 @@ function forCellsNear(grid, x, y, radius, fn) {
         if (stamp[i] === id) continue;
         const px = (cx + 0.5) * cell;
         let t = ((px - ax) * dx + (py - ay) * dy) / len2;
-        // Only the last segment owns its end cap; others hand off to the next segment.
+        // Cells before the start belong to the previous segment. Cells past the
+        // end belong to the next segment, unless they also lie before its start
+        // (the wedge outside a sharp corner), which this segment's end cap takes.
         if (t < 0 && s > 0) continue;
-        if (t > 1 && s < n - 2) continue;
+        if (t > 1 && s < n - 2) {
+          const ex = x[s + 2] - bx, ey = y[s + 2] - by;
+          if ((px - bx) * ex + (py - by) * ey >= 0) continue;
+        }
         t = Math.max(0, Math.min(1, t));
         const qx = ax + dx * t, qy = ay + dy * t;
         const d = Math.hypot(px - qx, py - qy);
@@ -140,12 +174,12 @@ export function cellsNear(grid, x, y, radius) {
 // level per point. `flood` (0..1) switches on levee building.
 export function stampChannel(grid, river, settings, year, flood, sedimentSupply = settings.sedimentSupply) {
   const { x, y, curvature: c, rate, level } = river;
-  const W = settings.channelWidth, halfW = W / 2, D = settings.channelDepth;
+  const W = settings.channelWidth, halfW = W / 2, D = effectiveDepth(settings);
   const innerRamp = FLOODPLAIN.innerRampWidths * W;
   const cutBand = FLOODPLAIN.cutBankBandWidths * W;
   const leveeW = FLOODPLAIN.leveeWidthWidths * W;
   const reach = halfW + Math.max(innerRamp, flood > 0 ? leveeW : 0, cutBand);
-  const { height, base, surface, veg, channel, chanLevel } = grid;
+  const { height, base, surface, veg, channel, chanLevel, lakeLost } = grid;
 
   // Clear last step's river cells; remember them to detect abandoned ground.
   const prevList = grid.chanList;
@@ -153,10 +187,10 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
   const list = [];
 
   const ridge = FLOODPLAIN.scrollAmplitude * (0.5 + 0.5 * Math.sin((2 * Math.PI * year) / FLOODPLAIN.scrollPeriod));
-  const leveeGain = FLOODPLAIN.leveeRate * sedimentSupply * flood;
+  // Levee growth is per flood-year; this call covers one step of DT years.
+  const leveeGain = FLOODPLAIN.leveeRate * sedimentSupply * flood * river.dt;
 
   forCellsNear(grid, x, y, reach, (i, u, t, s) => {
-    if (channel[i] === 2) return; // oxbow lake cells are handled separately
     const lvl = level[s] + (level[s + 1] - level[s]) * t;
     const cv = c[s] + (c[s + 1] - c[s]) * t;
     const r = rate[s] + (rate[s + 1] - rate[s]) * t;
@@ -170,6 +204,7 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
       const q = (u - shift) / (halfW + Math.abs(shift));
       const depth = FLOODPLAIN.edgeDepth + (dmax - FLOODPLAIN.edgeDepth) * Math.max(0, 1 - q * q);
       const h = lvl - depth;
+      if (channel[i] === 2) lakeLost[i] = 1; // the river has taken this bit of lake back
       if (channel[i] !== 3 || h < height[i] || Math.abs(height[i] - h) > 0.5) height[i] = h;
       channel[i] = 1;
       list.push(i);
@@ -178,6 +213,7 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
       veg[i] = 0;
       return;
     }
+    if (channel[i] === 2) return; // lake cells beside the river keep their water
     const f = dist - halfW;
     if (!isOuter && f <= innerRamp && height[i] <= base[i] + 0.01) {
       // Inner bank: gentle slope from the bar top up to the floodplain.
@@ -202,31 +238,35 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
       channel[i] = 0;
       const top = Math.min(base[i] - 0.3, chanLevel[i] + FLOODPLAIN.barAboveWater + ridge);
       height[i] = top;
-      surface[i] = SURFACE.SAND;
+      surface[i] = grid.rock[i] ? SURFACE.ROCK : SURFACE.SAND;
       veg[i] = 0;
     }
   }
   grid.chanList = list;
 }
 
-// Mark an oxbow's cells as lake and set its bed. Call once at creation and
-// whenever its depth changes materially. `cells` from cellsNear().
-export function stampOxbow(grid, oxbow, settings) {
-  const { height, surface, channel, veg } = grid;
+// Mark an oxbow's cells as lake and set its bed. With `carve` (at creation)
+// the bed is cut down to the lake bed; afterwards infill only raises it.
+export function stampOxbow(grid, oxbow, settings, carve = false) {
+  const { height, surface, channel, veg, lakeLost } = grid;
   const bed = oxbow.level - oxbow.depth;
+  const marsh = oxbow.depth <= FLOODPLAIN.oxbowMarshDepth;
   for (const i of oxbow.cells) {
-    if (channel[i] === 1 || channel[i] === 3) continue;
+    // At creation the loop is still flagged as river from the last stamp; claim it.
+    // Later, cells the river has taken back stay river.
+    if (lakeLost[i] || (!carve && (channel[i] === 1 || channel[i] === 3))) continue;
     channel[i] = 2;
-    if (height[i] < bed) height[i] = bed;
-    surface[i] = oxbow.depth > FLOODPLAIN.oxbowMarshDepth ? SURFACE.WATER : SURFACE.WETLAND;
-    veg[i] = oxbow.depth > FLOODPLAIN.oxbowMarshDepth ? 0 : Math.min(1, veg[i] + 0.02);
+    if (carve ? height[i] !== bed : height[i] < bed) height[i] = carve ? Math.min(height[i], bed) : bed;
+    surface[i] = marsh ? SURFACE.WETLAND : SURFACE.WATER;
+    veg[i] = marsh ? Math.min(1, veg[i] + 0.02) : 0;
   }
 }
 
 // Retire a fully infilled oxbow: cells become marsh land that greens over.
 export function retireOxbow(grid, oxbow) {
-  const { height, surface, channel, base } = grid;
+  const { height, surface, channel, base, lakeLost } = grid;
   for (const i of oxbow.cells) {
+    lakeLost[i] = 0;
     if (channel[i] !== 2) continue;
     channel[i] = 0;
     surface[i] = SURFACE.MARSH;
