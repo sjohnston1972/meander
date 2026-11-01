@@ -99,8 +99,8 @@ export function initialCentreline(settings, rng) {
 }
 
 // Howard & Knutson (1984) migration rate, as used by meanderpy.
-//   R0(s) = k(s) · C(s) · W
-//   R1(s) = Ω R0(s) + Γ · Σ_upstream R0(s−ξ) e^{−αξ} / Σ e^{−αξ}
+//   R0(s) = C(s) · W
+//   R1(s) = k(s) · [ Ω R0(s) + Γ · Σ_upstream R0(s−ξ) e^{−αξ} / Σ e^{−αξ} ]
 // The upstream sum is an exponential filter run once from upstream to
 // downstream, so this is O(n). `k` is the local erodibility in m/yr per unit
 // of (curvature × width); `W` is channel width. Positive rate moves the point
@@ -109,14 +109,20 @@ export function migrationRate(x, y, c, k, params, ds, W) {
   const n = x.length;
   const rate = new Float64Array(n);
   const { omega, gamma, alpha } = params;
+  // The upstream average deliberately excludes the local point: including it
+  // makes the scheme anti-diffusive at short wavelengths when alpha·ds is not
+  // small, and the river explodes into tiny loops.
   let sum = 0, norm = 0;
   for (let i = 0; i < n; i++) {
-    const r0 = k[i] * c[i] * W;
+    const r0 = c[i] * W;
     const seg = i === 0 ? ds : Math.hypot(x[i] - x[i - 1], y[i] - y[i - 1]);
     const w = Math.exp(-alpha * seg);
+    const upstream = norm > 0 ? sum / norm : 0;
+    // Local erodibility scales the whole rate: a rock bank does not move just
+    // because the bend upstream is sharp.
+    let r1 = k[i] * (omega * r0 + gamma * upstream);
     sum = r0 + w * sum;
     norm = 1 + w * norm;
-    let r1 = omega * r0 + gamma * (sum / norm);
     if (r1 > CENTRELINE.maxRate) r1 = CENTRELINE.maxRate;
     else if (r1 < -CENTRELINE.maxRate) r1 = -CENTRELINE.maxRate;
     rate[i] = r1;

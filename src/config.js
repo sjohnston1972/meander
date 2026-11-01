@@ -17,8 +17,8 @@ export const defaults = {
   floodSize: 3,            // flood peak as a multiple of mean discharge
 
   // --- Channel ---
-  channelWidth: 60,        // bank-to-bank width in metres
-  channelDepth: 3,         // mean channel depth in metres
+  channelWidth: 50,        // bank-to-bank width in metres
+  channelDepth: 2.5,         // mean channel depth in metres
   valleySlope: 0.0005,     // fall per metre down the valley (0.0005 = 50 cm per km)
   sedimentSupply: 1,       // how quickly bars and levees build (1 = normal)
 
@@ -42,7 +42,7 @@ export const defaults = {
   // --- Model (advanced) ---
   omega: -1,               // Howard & Knutson local curvature weight (their value: -1)
   gamma: 2.5,              // Howard & Knutson upstream influence weight (their value: 2.5)
-  alpha: 0.012,            // 1/m, how fast upstream influence fades (2·Cf/D with Cf≈0.02, D≈3 m)
+  alpha: 0.02,             // 1/m, how fast upstream influence fades (2·Cf/D; larger = shorter, tighter bends)
 
   // --- Show ---
   showParticles: true,     // helical flow particles
@@ -64,8 +64,8 @@ export const RESET_KEYS = ['seed', 'startShape', 'quality'];
 
 // --- Valley geometry ---
 export const VALLEY = {
-  length: 4000,            // metres, upstream to downstream (engine x axis)
-  width: 2000,             // metres across the valley (engine y axis)
+  length: 6000,            // metres, upstream to downstream (engine x axis)
+  width: 3000,             // metres across the valley (engine y axis)
 };
 
 // --- Time ---
@@ -76,17 +76,20 @@ export const SNAPSHOT_HZ = 20;       // max snapshots per second sent to the ren
 // --- Centreline ---
 export const CENTRELINE = {
   spacingFactor: 0.5,      // point spacing as a fraction of channel width
-  wiggleAmplitude: 0.5,    // initial random wiggle, in channel widths
+  wiggleAmplitude: 1.0,    // initial random wiggle, in channel widths
   wiggleWavelength: 10,    // initial wiggle wavelength, in channel widths
   sineAmplitude: 1.5,      // 'sine' start shape amplitude, in channel widths
   sineWavelength: 12,      // 'sine' start shape wavelength, in channel widths
-  smoothingPasses: 1,      // light centreline smoothing per step
-  curvatureSmoothing: 2,   // smoothing passes applied to curvature
-  migrationScale: 40,      // m/yr per unit (curvature × width); scaled by erodibility
+  smoothingPasses: 0,      // light centreline smoothing per step
+  curvatureSmoothing: 4,   // smoothing passes applied to curvature
+  migrationScale: 4,      // m/yr per unit (curvature × width); scaled by erodibility
   dischargeExponent: 0.5,  // migration ∝ (Q / meanQ)^this
-  maxRate: 30,             // m/yr cap on migration at any point (keeps the model stable)
+  maxRate: 12,             // m/yr cap on migration at any point (keeps the model stable)
+  bankNoise: 0.05,         // random lateral wobble per step as a fraction of the migration scale
   minSeparationWidths: 4,  // neck cutoff only between reaches this far apart along the river
   endProtection: 6,        // points at each end that never migrate or cut off
+  wallMarginWidths: 8,     // erodibility fades to zero this many widths from the valley walls
+  outletFadeFraction: 0.12, // fraction of valley length before the outlet where migration fades out
   chuteMinWidths: 3,       // chute cutoff shortcut must span at least this many widths of river
   chuteMaxWidths: 12,      // ... and at most this many
   chuteMaxDistanceWidths: 3, // chute only where the two reaches are within this many widths
@@ -181,7 +184,7 @@ export const PRESETS = {
     erodibility: 0.6, bankHeight: 5, vegGrowth: 1, rootStrength: 0.5, floodFrequency: 3,
   },
   'Tight-bend clay river': {
-    channelWidth: 45, channelDepth: 3, meanDischarge: 80, valleySlope: 0.0004,
+    channelWidth: 45, channelDepth: 2.5, meanDischarge: 80, valleySlope: 0.0004,
     erodibility: 0.5, bankHeight: 4.5, patchiness: 0.8, vegGrowth: 1.4, rootStrength: 0.8,
     cutoffDistance: 0.8, gamma: 3,
   },
