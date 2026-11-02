@@ -181,11 +181,13 @@ async function start() {
   }
   sim.onRestored((m) => {
     if (m.type === 'restoreFailed') toast(`Could not load the saved river: ${m.message}`);
-    else adoptRiver(m.settings, m.year, m.from);
+    else { scenarios.stop(); stopPlacing(); adoptRiver(m.settings, m.year, m.from); }
   });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') sim.saveNow(); });
 
   function reset() {
+    scenarios?.stop();
+    stopPlacing();
     pendingReset.clear();
     controls.showResetNote('');
     snapshot = null;

@@ -91,6 +91,7 @@ export function validateState(state) {
   }
   for (const k of ['height', 'base', 'relief', 'patch', 'veg', 'chanLevel', 'bedrock']) if (!finite(g[k])) fail(`grid ${k} values`);
   if (!(g.chanList instanceof Int32Array) || g.chanList.length > n || g.chanList.some((i) => i < 0 || i >= n)) fail('grid channel list');
+  if (g.chanSeg !== undefined && (!(g.chanSeg instanceof Int32Array) || g.chanSeg.length !== n || g.chanSeg.some((i) => i < 0 || i > 50000))) fail('grid channel segments');
 
   // The river: inside the valley, a sane number of points, per-point arrays to match.
   const inside = (xs, ys) => xs.every((v) => num(v, -1, VALLEY.length + 1)) && ys.every((v) => num(v, -1, VALLEY.width + 1));
@@ -200,6 +201,7 @@ export function validateState(state) {
       }
     }
     if (t.damCount !== undefined && (!Number.isInteger(t.damCount) || t.damCount < 0)) fail('tributary dam count');
+    if (t.dams && new Set(t.dams.map((d) => d.id)).size !== t.dams.length) fail('tributary beaver dam ids');
   }
 
   // Valley walls (absent from saves made before landslides and gullies).

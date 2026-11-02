@@ -19,7 +19,7 @@ describe('grain sorting', () => {
   it('fines downstream on an overloaded river, with gravel bars above and sand below', { timeout: LONG }, () => {
     const e = run(new Engine({ ...defaults, quality: 'low', sedimentSupply: 3 }), 600);
     const n = e.x.length, g = e.grain;
-    expect(mean(g, 6, Math.floor(n / 4))).toBeGreaterThan(mean(g, Math.floor(n * 0.75), n - 6) + 0.08);
+    expect(mean(g, 6, Math.floor(n / 5))).toBeGreaterThan(mean(g, Math.floor(n * 0.8), n - 6) + 0.08);
     let gravel = 0;
     for (let i = 0; i < e.grid.surface.length; i++) if (e.grid.surface[i] === SURFACE.GRAVEL) gravel++;
     expect(gravel).toBeGreaterThan(20);

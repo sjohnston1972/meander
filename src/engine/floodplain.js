@@ -214,9 +214,10 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
   // Levee growth is per flood-year; this call covers one step of DT years.
   const leveeGain = FLOODPLAIN.leveeRate * sedimentSupply * flood * river.dt;
 
+  const { deep } = river; // water a log jam backs up: the bed stays where it was
   forCellsNear(grid, x, y, reach, (i, u, t, s) => {
     if (channel[i] === 4) return; // open water of the valley-end lake
-    const lvl = level[s] + (level[s + 1] - level[s]) * t;
+    const lvl = level[s] + (level[s + 1] - level[s]) * t - (deep ? deep[s] + (deep[s + 1] - deep[s]) * t : 0);
     const cv = c[s] + (c[s + 1] - c[s]) * t;
     const r = rate[s] + (rate[s + 1] - rate[s]) * t;
     const bend = Math.min(1, Math.abs(cv) * W * THALWEG.curvatureScale);

@@ -102,12 +102,13 @@ export function createScenarios(app) {
   panel.innerHTML = '<div class="sc-head"><span class="sc-title"></span><span class="sc-count"></span><button class="sc-close" aria-label="Close">×</button></div><p class="sc-text"></p><div class="sc-foot"><button class="sc-next">Next ›</button></div>';
   document.body.appendChild(panel);
   const titleEl = panel.querySelector('.sc-title'), countEl = panel.querySelector('.sc-count'), textEl = panel.querySelector('.sc-text');
-  let current = null, index = -1, since = 0, seen = new Set();
+  let current = null, index = -1, since = 0, now = 0, seen = new Set();
 
   function show(i, year) {
     index = i;
     const step = current.steps[i];
     since = year;
+    seen = new Set(); // the next step waits for something that happens from here on
     titleEl.textContent = current.title;
     countEl.textContent = `${i + 1} / ${current.steps.length}`;
     textEl.textContent = step.text;
@@ -126,9 +127,9 @@ export function createScenarios(app) {
     const next = { ...app.defaults };
     for (const k of KEEP) next[k] = app.settings[k];
     Object.assign(next, sc.settings);
+    app.apply(next); // a reset: stops any scenario running
     current = sc;
-    seen = new Set();
-    app.apply(next);
+    now = 0;
     panel.classList.add('show');
     show(0, 0);
   }
@@ -141,6 +142,7 @@ export function createScenarios(app) {
   // Each snapshot: move on when the next step's year has come or its event has happened.
   function update(snap) {
     if (!current) return;
+    now = snap.year;
     for (const ev of snap.events) seen.add(ev.type);
     const next = current.steps[index + 1];
     if (!next) return;
@@ -153,7 +155,7 @@ export function createScenarios(app) {
   panel.querySelector('.sc-close').onclick = stop;
   panel.querySelector('.sc-next').onclick = () => {
     if (!current) return;
-    if (index < current.steps.length - 1) show(index + 1, since); else stop();
+    if (index < current.steps.length - 1) show(index + 1, now); else stop();
   };
 
   return { start, stop, update, get running() { return !!current; } };

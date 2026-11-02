@@ -53,7 +53,7 @@ export function lineBanks(grid, x0, y0, x1, y1, W) {
   const cells = cellsNear(grid, Float64Array.of(x0, x1), Float64Array.of(y0, y1), W / 2 + grid.cell * 1.2);
   const out = [];
   for (const i of cells) {
-    if (grid.channel[i] === 1 || grid.channel[i] === 2) continue;
+    if (grid.channel[i] === 1 || grid.channel[i] === 2 || grid.rock[i]) continue; // rock already there stays when the lining goes
     grid.rock[i] = 1;
     grid.surface[i] = SURFACE.ROCK;
     grid.veg[i] = 0;
@@ -82,7 +82,7 @@ export function buildEmbankments(grid, x, y, from, to, offset, height) {
     const xs = Float64Array.from(side, (p) => p[0]), ys = Float64Array.from(side, (p) => p[1]);
     lines.push({ x: xs, y: ys });
     for (const i of cellsNear(grid, xs, ys, WORKS.embankHalfWidth)) {
-      if (grid.channel[i]) continue;
+      if (grid.channel[i] || grid.rock[i]) continue;
       const top = grid.base[i] + height;
       if (grid.height[i] < top) grid.height[i] = top;
       grid.rock[i] = 1;

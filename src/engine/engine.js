@@ -179,7 +179,7 @@ export class Engine {
         cols: g.cols, rows: g.rows, cell: g.cell, slope: g.slope, bankHeight: g.bankHeight,
         height: g.height.slice(), base: g.base.slice(), relief: g.relief.slice(), surface: g.surface.slice(),
         patch: g.patch.slice(), rock: g.rock.slice(), veg: g.veg.slice(), channel: g.channel.slice(),
-        lakeLost: g.lakeLost.slice(), chanLevel: g.chanLevel.slice(), chanList: Int32Array.from(g.chanList),
+        lakeLost: g.lakeLost.slice(), chanLevel: g.chanLevel.slice(), chanList: Int32Array.from(g.chanList), chanSeg: g.chanSeg.slice(),
         bedrock: g.bedrock.slice(), alluvium: g.alluvium,
       },
     };
@@ -247,7 +247,7 @@ export class Engine {
       veg: Float32Array.from(g.veg), channel: Uint8Array.from(g.channel), lakeLost: Uint8Array.from(g.lakeLost),
       chanLevel: Float32Array.from(g.chanLevel), chanList: Array.from(g.chanList),
       bedrock: Float32Array.from(g.bedrock), alluvium: g.alluvium, bedrockVersion: 0,
-      stamp: new Uint32Array(n), stampId: 1, chanSeg: new Int32Array(n),
+      stamp: new Uint32Array(n), stampId: 1, chanSeg: g.chanSeg ? Int32Array.from(g.chanSeg) : new Int32Array(n),
     };
     this.lake = st.lake ? Engine.newLake(Int32Array.from(st.lake.cells), st.lake) : null;
     this.sentLakeVersion = -1;
@@ -260,6 +260,7 @@ export class Engine {
     if (this.trib) tributaryLevels(this.trib, this.settings, this.level, this.depth);
     this.events = [];
     this.updateClimate();
+    this.computeLevels(); // the reference profile is not saved: rebuild it (the levels come out as saved)
     if (this.braid > 0) this.computeThreads();
     this.features = this.findFeatures();
   }
@@ -458,6 +459,7 @@ export class Engine {
     if (this.aggr.length !== n) this.aggr = new Float64Array(n); // only if something replaced the course without carrying it
     const level = new Float64Array(n);
     for (let i = 0; i < n; i++) level[i] = ref[i] + this.aggr[i];
+    this.backwater = this.jams.length ? new Float64Array(n) : null;
     for (const jm of this.jams) {
       const j = this.nearestPoint(jm.x, jm.y);
       const reach = backwaterReach(jm.height, this.settings.valleySlope);
@@ -467,6 +469,7 @@ export class Engine {
         const b = backwater(jm.height, d, reach);
         if (b <= 0) break;
         level[i] += b;
+        this.backwater[i] += b;
       }
     }
     for (const d of this.dams) {
@@ -681,7 +684,13 @@ export class Engine {
       const p = dz >= 0 && T < dep ? (G + g[i] * (dep - T)) / dep : T > 1e-9 ? G / T : g[i];
       let gOut;
       if (dz >= 0) {
-        const gd = Math.min(1, p + GRAIN.sorting * p * (1 - p));
+        // Gravel drops first, but no more of it than arrived (and no more
+        // sand); what spilled over from upstream is laid down as it came.
+        let gd;
+        if (dep <= T && dep > 0) {
+          gd = Math.min(1, p + GRAIN.sorting * p * (1 - p), G / dep);
+          gd = Math.max(gd, 1 - (T - G) / dep);
+        } else gd = p;
         gOut = G - gd * dep;
         g[i] += (gd - g[i]) * (h / la);
       } else {
@@ -805,7 +814,18 @@ export class Engine {
     const cutting = this.incision > 0 || this.knickpoints.length > 0;
     this.bankH = cutting ? new Float64Array(n) : null;
     for (let i = prot; i < n - prot; i++) k[i] = base * this.localErodibility(i);
-    if (this.dams.length) { const pool = this.pooledPoints(); for (let i = 0; i < n; i++) if (pool[i]) k[i] = 0; } // a lake does not migrate
+    if (this.dams.length) {
+      // A lake does not migrate; the shallow far end of a beaver pond still does, a little.
+      const pool = this.pooledPoints();
+      const D = this.depth;
+      const shallow = this.dams.some((d) => d.kind === 'beaver');
+      for (let i = 0; i < n; i++) {
+        if (!pool[i]) continue;
+        if (!shallow || !this.beaverPooled(i)) { k[i] = 0; continue; }
+        const extra = this.level[i] - (this.refLevel[i] + this.aggr[i]);
+        k[i] = extra < D ? k[i] * (1 - Math.max(0, extra) / D) : 0;
+      }
+    }
     if (this.lake) for (let i = Math.max(0, this.mouth); i < n; i++) k[i] = 0; // nor does the river's line out over the valley-end lake
     const pinned = this.works.length ? pinnedPoints(this.works, this.x, this.y, W) : null; // lined banks and bridges hold it
     if (pinned) for (let i = 0; i < n; i++) if (pinned[i]) k[i] = 0;
@@ -850,21 +870,24 @@ export class Engine {
     // 4. Cutoffs (a braided river has no meander loops to cut off).
     // Engineers keep a lined reach or a bridge from being cut off.
     const minSep = Math.round((CENTRELINE.minSeparationWidths * W) / ds);
-    const held = (hit) => {
-      if (!this.works.length) return false;
-      const m = pinnedPoints(this.works, this.x, this.y, W);
-      if (m) for (let i = hit.i; i <= hit.j; i++) if (m[i]) return true;
+    const lined = this.works.some((w) => w.kind === 'straighten') ? this.works.filter((w) => w.kind === 'straighten') : null;
+    let heldMask = null;
+    const held = (i, j) => {
+      if (!lined) return false;
+      if (!heldMask || heldMask.length !== this.x.length) heldMask = pinnedPoints(lined, this.x, this.y, W) || new Uint8Array(this.x.length);
+      for (let k = i; k <= j; k++) if (heldMask[k]) return true;
       return false;
     };
     for (let guard = 0; guard < 3 && this.braid < 0.5; guard++) {
-      const hit = findNeckCutoff(this.x, this.y, minSep, s.cutoffDistance * W, prot);
-      if (!hit || held(hit)) break;
+      const hit = findNeckCutoff(this.x, this.y, minSep, s.cutoffDistance * W, prot, lined ? held : null);
+      heldMask = null;
+      if (!hit) break;
       this.cutoff(hit.i, hit.j, 'neck');
     }
     if (this.flood > 0 && this.braid < 0.5) {
       const c2 = curvature(this.x, this.y);
       const hit = findChuteCutoff(this.x, this.y, c2, this.rng, s.chuteChance * DT, ds, W, prot);
-      if (hit && !held(hit)) this.cutoff(hit.i, hit.j, 'chute');
+      if (hit && !held(hit.i, hit.j)) this.cutoff(hit.i, hit.j, 'chute');
     }
 
     // 5. Floodplain: carve the channel, age oxbows, grow land.
@@ -887,7 +910,7 @@ export class Engine {
       if (this.dams.length) this.updateDams(this.landDt);
       if (this.lake) this.updateLake();
       if (this.trib) growFan(this.grid, this.trib, s, this.landDt);
-      if (s.logJams || s.beavers || this.jams.length) this.updateWood(this.landDt);
+      if (s.logJams || s.beavers || this.jams.length || this.trib?.dams?.length) this.updateWood(this.landDt);
       this.landDt = 0;
     }
     this.sedimentStep();
@@ -927,6 +950,7 @@ export class Engine {
       cutting: this.incision > 0 || this.knickpoints.length > 0,
       wash: null,
       grain: this.grain && this.grain.length === N ? cut(this.grain) : null,
+      deep: this.backwater && this.backwater.length === N ? cut(this.backwater) : null, // water a jam backs up over the bed
     };
     if (this.wash && this.wash.length === N) {
       river.wash = new Float64Array(n);
@@ -1006,6 +1030,7 @@ export class Engine {
     let line = null;
     for (const turn of [0, 0.5, -0.5, 1, -1]) {
       const [ux, uy] = this.mouthDirection(turn);
+      if (ux < 0.2) continue; // never back up the valley
       line = trace(ux, uy);
       if (line) break;
     }
@@ -1174,6 +1199,16 @@ export class Engine {
     return best;
   }
 
+  // Whether pooled point i stands in a beaver pond (the nearest dam below it is a beaver's).
+  beaverPooled(i) {
+    let best = null, bestJ = Infinity;
+    for (const d of this.dams) {
+      const j = this.nearestPoint(d.x, d.y);
+      if (j >= i && j < bestJ) { bestJ = j; best = d; }
+    }
+    return !!best && best.kind === 'beaver';
+  }
+
   // Centreline points standing in a landslide lake.
   pooledPoints() {
     const n = this.x.length;
@@ -1225,6 +1260,14 @@ export class Engine {
     for (let k = this.dams.length - 1; k >= 0; k--) {
       const d = this.dams[k];
       d.age += dt;
+      // The river has moved away from it (a cutoff, a straightening): it holds nothing up any more.
+      const near = this.nearestPoint(d.x, d.y);
+      if (hypot(this.x[near] - d.x, this.y[near] - d.y) > 1.5 * this.settings.channelWidth) {
+        for (const i of d.cells) if (!g.channel[i]) { g.surface[i] = SURFACE.WETLAND; g.veg[i] = Math.min(g.veg[i], 0.2); }
+        this.dams.splice(k, 1);
+        this.works = this.works.filter((w) => !(w.kind === 'weir' && w.dam === d.id));
+        continue;
+      }
       const kept = (d.kind === 'beaver' && d.age < d.life) || d.kind === 'weir'; // a colony keeps its dam in repair; a weir is concrete
       if (!kept) d.crest -= HILLS.damErosion * dt * (1 + HILLS.damFloodErosion * this.flood);
       const above = d.crest - d.natural;
@@ -1369,7 +1412,11 @@ export class Engine {
       wetUpstream(g, this.x, this.y, from, j + 1, this.level[j], W * WOOD.wetWidths);
     }
     if (s.beavers) this.updateBeavers(dt);
-    else if (this.trib && this.trib.dams) this.trib.dams.length = 0;
+    else if (this.trib && this.trib.dams && this.trib.dams.length) {
+      for (const d of this.trib.dams) for (const i of d.cells) if (!g.channel[i]) g.surface[i] = SURFACE.MARSH;
+      this.trib.dams.length = 0;
+      this.trib.pool = null;
+    }
   }
 
   // Beavers: a colony now and then dams the river (if it is narrow enough)
@@ -1413,7 +1460,9 @@ export class Engine {
         if (!t.dams.some((d) => Math.abs(d.a - a) < BEAVER.spacing)) {
           t.dams.push({ id: ++t.damCount, a, h: BEAVER.height, age: 0, life: this.rng.range(BEAVER.life[0], BEAVER.life[1]), cells: new Int32Array(0) });
           t.dams.sort((p, q) => q.a - p.a); // downstream first
-          this.events.push({ type: 'beaverdam', x: t.x[0], y: t.y[0], year: this.year });
+          let k = 0;
+          while (k < t.x.length - 1 && arc[k] < a) k++;
+          this.events.push({ type: 'beaverdam', x: t.x[k], y: t.y[k], year: this.year });
         }
       }
     }

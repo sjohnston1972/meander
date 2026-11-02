@@ -154,7 +154,8 @@ export function migrate(x, y, rate, dt) {
 // Neck cutoff search: two points far apart along the river but closer than
 // `cutoffDistance` in space. Uses a spatial hash so it is O(n) per step.
 // Returns the closest such pair, or null.
-export function findNeckCutoff(x, y, minSeparationPoints, cutoffDistance, endProtection) {
+// `skip(i, j)`, if given, rules a pair out (a reach engineers hold in place).
+export function findNeckCutoff(x, y, minSeparationPoints, cutoffDistance, endProtection, skip = null) {
   const n = x.length;
   const cell = cutoffDistance;
   const grid = new Map();
@@ -174,7 +175,7 @@ export function findNeckCutoff(x, y, minSeparationPoints, cutoffDistance, endPro
       for (const j of b) {
         if (j - i < minSeparationPoints) continue;
         const d = hypot(x[j] - x[i], y[j] - y[i]);
-        if (d < bestD) { bestD = d; best = { i, j }; }
+        if (d < bestD && !(skip && skip(i, j))) { bestD = d; best = { i, j }; }
       }
     }
   }
