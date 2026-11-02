@@ -312,6 +312,9 @@ export const HELP = {
   quality: 'Trades detail for speed. Changing it resets the simulation',
   copyLink: 'Copy a link that reopens this exact river and settings',
   screenshot: 'Save a PNG of the current view',
+  saveFile: 'Download the whole river, landscape and history as a .meander file you can open again later',
+  openFile: 'Open a .meander file saved earlier and carry on from where it was',
+  restorePrevious: 'Bring back the river you had before the current one (kept when it ran at least 100 years). Your river is also saved in this browser automatically'
 };
 
 // Explain-mode text: two lines each.

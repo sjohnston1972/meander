@@ -14,6 +14,9 @@ import { createControls } from './ui/controls.js';
 import { createCrossSection } from './ui/crosssection.js';
 import { toast } from './ui/toast.js';
 import { decodeSettings, copyLink, saveScreenshot } from './ui/share.js';
+import { packRiver, unpackRiver, download, pickFile } from './ui/files.js';
+import { getMeta } from './storage.js';
+import { sanitizeSettings } from './settings.js';
 
 function supported() {
   if (window.innerWidth < 1024) return false;
@@ -21,9 +24,13 @@ function supported() {
   return !!probe.getContext('webgl2');
 }
 
-function start() {
+async function start() {
   const settings = decodeSettings(location.hash, defaults);
   const fromLink = location.hash.length > 1;
+  // Carry on with the autosaved river unless a link names a river, or the
+  // URL says ?fresh.
+  const params = new URLSearchParams(location.search);
+  const resume = !fromLink && !params.has('fresh') && !!(await getMeta()).autosave;
   const canvas = document.getElementById('view');
   const view = createScene(canvas, settings);
   const quality = () => QUALITY[settings.quality] || QUALITY.medium;
@@ -42,7 +49,7 @@ function start() {
   let lastTerrainAt = 0, lastVegAt = 0;
   let floodVisual = 0; // eased flood level shown on screen
   const pendingReset = new Set();
-  const sim = createSim(settings);
+  const sim = createSim(settings, { slot: resume ? 'autosave' : null });
 
   const hudYear = document.getElementById('year');
   const hudFlood = document.getElementById('flood-hud');
@@ -81,6 +88,30 @@ function start() {
       else if (ev.type === 'collapse') { toast(`Bank collapse in year ${yr}`); effects.spawn('collapse', ev.x, ev.y, groundHeight(ev.x, ev.y)); }
     }
   });
+
+  // A saved river has arrived (autosave, previous river, or file): adopt its settings.
+  function adoptRiver(saved, year, from) {
+    Object.assign(settings, sanitizeSettings(saved, defaults), { paintRock: false });
+    pendingReset.clear();
+    controls.showResetNote('');
+    controls.refresh('Custom');
+    view.setQuality(settings.quality);
+    view.setTimeOfDay(settings.timeOfDay);
+    view.setFog(settings.fog);
+    view.controls.enabled = true;
+    canvas.style.cursor = '';
+    snapshot = null; // rebuild everything from the next snapshot
+    section.hide();
+    const yr = Math.floor(year).toLocaleString();
+    toast(from === 'autosave' ? `Resumed your river at year ${yr}. Press R to start a new one`
+      : from === 'previous' ? `Restored your earlier river at year ${yr}`
+      : `Opened river at year ${yr}`);
+  }
+  sim.onRestored((m) => {
+    if (m.type === 'restoreFailed') toast(`Could not load the saved river: ${m.message}`);
+    else adoptRiver(m.settings, m.year, m.from);
+  });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') sim.saveNow(); });
 
   function reset() {
     pendingReset.clear();
@@ -132,6 +163,25 @@ function start() {
     screenshot() {
       saveScreenshot(view.renderer, view.scene, view.camera, snapshot?.year ?? 0);
       toast('Screenshot saved');
+    },
+    async saveFile() {
+      toast('Saving the river...');
+      const state = await sim.serialize();
+      const bytes = await packRiver(state);
+      download(bytes, `meander-seed-${state.settings.seed}-year-${Math.floor(state.year)}.meander`);
+      toast(`River saved (${(bytes.length / 1e6).toFixed(1)} MB)`);
+    },
+    async openFile() {
+      const bytes = await pickFile('.meander');
+      if (!bytes) return;
+      let state;
+      try { state = await unpackRiver(bytes); } catch (err) { toast(`Could not open that file: ${err.message}`); return; }
+      sim.restore(state);
+      adoptRiver(state.settings, state.year, 'file');
+    },
+    async restorePrevious() {
+      if (!(await getMeta()).previous) { toast('No earlier river is saved yet. One is kept when you start a new river after 100 years'); return; }
+      sim.restoreSlot('previous');
     },
   };
   const controls = createControls(settings, actions);
@@ -261,7 +311,7 @@ function start() {
 }
 
 if (supported()) {
-  window.meander = start();
+  start().then((app) => { window.meander = app; });
 } else {
   document.getElementById('desktop-only').classList.add('show');
   document.getElementById('app').style.display = 'none';

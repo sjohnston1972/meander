@@ -116,10 +116,13 @@ export function createControls(settings, actions) {
   add(scene, 'fog').name('Fog');
   add(scene, 'quality', { Low: 'low', Medium: 'medium', High: 'high' }).name('Quality (reset)');
 
-  // --- Share ---
-  const share = gui.addFolder('Share');
+  // --- Save and share ---
+  const share = gui.addFolder('Save and share');
   help(share.add({ copy: () => actions.copyLink() }, 'copy').name('Copy link'), 'copyLink');
   help(share.add({ shot: () => actions.screenshot() }, 'shot').name('Save screenshot'), 'screenshot');
+  help(share.add({ save: () => actions.saveFile() }, 'save').name('Save river to file'), 'saveFile');
+  help(share.add({ open: () => actions.openFile() }, 'open').name('Open river file'), 'openFile');
+  help(share.add({ prev: () => actions.restorePrevious() }, 'prev').name('Restore earlier river'), 'restorePrevious');
 
   for (const f of [flow, channel, banks, veg, cut, scene, share]) f.close();
 

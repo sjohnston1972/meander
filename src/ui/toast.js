@@ -14,5 +14,5 @@ export function toast(text) {
   setTimeout(() => {
     el.classList.remove('show');
     setTimeout(() => el.remove(), 300);
-  }, LIFE);
+  }, LIFE + Math.max(0, text.length - 40) * 45); // longer messages stay up longer
 }

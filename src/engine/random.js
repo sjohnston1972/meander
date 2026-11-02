@@ -15,6 +15,9 @@ export function createRandom(seed) {
 
   return {
     next,
+    // The generator's whole state, so a saved river can carry on exactly.
+    getState() { return { state, spare }; },
+    setState(s) { state = s.state >>> 0; spare = s.spare ?? null; },
     range(a, b) { return a + (b - a) * next(); },
     int(n) { return Math.floor(next() * n); },
     chance(p) { return next() < p; },

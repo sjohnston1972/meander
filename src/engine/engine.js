@@ -5,6 +5,7 @@ import { VALLEY, DT, CENTRELINE, FLOODS, FLOODPLAIN, THALWEG, RENDER, SURFACE } 
 
 const RENDER_FEATURE_TICKS = RENDER.featureEveryTicks;
 import { createRandom } from './random.js';
+import { SAVE_VERSION } from './savefile.js';
 import {
   curvature, resample, smooth, initialCentreline, arcLength,
   migrationRate, migrate, findNeckCutoff, spliceCutoff, findChuteCutoff,
@@ -45,6 +46,72 @@ export class Engine {
     this.features = [];
     this.computeLevels();
     this.stamp();
+  }
+
+  // The whole state as plain data and typed arrays (copies), for saving.
+  // Engine.fromState(serialize()) carries on exactly as this engine would.
+  serialize() {
+    const g = this.grid;
+    return {
+      version: SAVE_VERSION,
+      settings: { ...this.settings },
+      rng: this.rng.getState(),
+      year: this.year,
+      tickCount: this.tickCount,
+      x: Float64Array.from(this.x), y: Float64Array.from(this.y),
+      rate: Float64Array.from(this.rate), curv: Float64Array.from(this.curv), level: Float64Array.from(this.level),
+      oxbows: this.oxbows.map((o) => ({ ...o, x: o.x.slice(), y: o.y.slice(), cells: o.cells.slice() })),
+      oxbowCount: this.oxbowCount,
+      history: this.history.map((h) => ({ year: h.year, x: h.x.slice(), y: h.y.slice() })),
+      lastHistoryYear: this.lastHistoryYear,
+      flood: this.flood, floodRemaining: this.floodRemaining, floodPending: this.floodPending,
+      discharge: this.discharge, yearDischargeAt: this.yearDischargeAt,
+      incision: this.incision, incisionTarget: this.incisionTarget,
+      landDt: this.landDt,
+      grid: {
+        cols: g.cols, rows: g.rows, cell: g.cell, slope: g.slope, bankHeight: g.bankHeight,
+        height: g.height.slice(), base: g.base.slice(), relief: g.relief.slice(), surface: g.surface.slice(),
+        patch: g.patch.slice(), rock: g.rock.slice(), veg: g.veg.slice(), channel: g.channel.slice(),
+        lakeLost: g.lakeLost.slice(), chanLevel: g.chanLevel.slice(), chanList: Int32Array.from(g.chanList),
+      },
+    };
+  }
+
+  // Load a state from serialize() (checked by savefile.validateState first).
+  restore(st) {
+    this.settings = { ...st.settings };
+    this.rng = createRandom(this.settings.seed);
+    this.rng.setState(st.rng);
+    this.year = st.year;
+    this.tickCount = st.tickCount;
+    this.x = Float64Array.from(st.x); this.y = Float64Array.from(st.y);
+    this.rate = Float64Array.from(st.rate); this.curv = Float64Array.from(st.curv); this.level = Float64Array.from(st.level);
+    this.oxbows = st.oxbows.map((o) => ({ ...o, x: Float32Array.from(o.x), y: Float32Array.from(o.y), cells: Int32Array.from(o.cells) }));
+    this.oxbowCount = st.oxbowCount;
+    this.history = st.history.map((h) => ({ year: h.year, x: Float32Array.from(h.x), y: Float32Array.from(h.y) }));
+    this.lastHistoryYear = st.lastHistoryYear ?? -Infinity;
+    this.flood = st.flood; this.floodRemaining = st.floodRemaining; this.floodPending = st.floodPending;
+    this.discharge = st.discharge; this.yearDischargeAt = st.yearDischargeAt;
+    this.incision = st.incision; this.incisionTarget = st.incisionTarget ?? 0;
+    this.landDt = st.landDt;
+    const g = st.grid;
+    const n = g.cols * g.rows;
+    this.grid = {
+      cols: g.cols, rows: g.rows, cell: g.cell, slope: g.slope, bankHeight: g.bankHeight,
+      height: Float32Array.from(g.height), base: Float32Array.from(g.base), relief: Float32Array.from(g.relief),
+      surface: Uint8Array.from(g.surface), patch: Float32Array.from(g.patch), rock: Uint8Array.from(g.rock),
+      veg: Float32Array.from(g.veg), channel: Uint8Array.from(g.channel), lakeLost: Uint8Array.from(g.lakeLost),
+      chanLevel: Float32Array.from(g.chanLevel), chanList: Array.from(g.chanList),
+      stamp: new Uint32Array(n), stampId: 1,
+    };
+    this.events = [];
+    this.features = this.findFeatures();
+  }
+
+  static fromState(st) {
+    const e = Object.create(Engine.prototype);
+    e.restore(st);
+    return e;
   }
 
   // Settings that apply from the next tick without a reset.
