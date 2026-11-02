@@ -39,6 +39,7 @@ export function createSim(settings, { slot = null } = {}) {
     reset(settings) { generation++; worker.postMessage({ type: 'reset', settings, generation }); },
     triggerFlood() { worker.postMessage({ type: 'flood' }); },
     dropBaseLevel(metres) { worker.postMessage({ type: 'dropBase', metres }); },
+    triggerLandslide() { worker.postMessage({ type: 'landslide' }); },
     paint(x, y, radius, on) { worker.postMessage({ type: 'paint', x, y, radius, on }); },
     // Saving: the whole engine state (a copy), a river from a file, a stored slot.
     serialize() {

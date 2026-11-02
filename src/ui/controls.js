@@ -75,6 +75,7 @@ export function createControls(settings, actions) {
   add(channel, 'valleySlope').name('Valley slope (m/m)');
   add(channel, 'incisionRate').name('Incision (m per 1000 yr)');
   help(channel.add({ drop: () => actions.dropBase() }, 'drop').name('Drop base level 2 m'), 'dropBase');
+  help(channel.add({ slide: () => actions.landslide() }, 'slide').name('Trigger landslide'), 'landslide');
   add(channel, 'sedimentSupply').name('Sediment supply');
 
   // --- Banks ---

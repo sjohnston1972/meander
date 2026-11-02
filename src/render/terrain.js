@@ -1,6 +1,7 @@
 // Landscape mesh built from the floodplain height grid, coloured by surface type.
 import * as THREE from 'three';
 import { VALLEY, SURFACE, RENDER } from '../config.js';
+import { rockHardness } from '../engine/hillslope.js';
 
 // Smooth value noise on the cell grid for broad meadow/lush patches.
 function hash2(i, j) {
@@ -30,7 +31,7 @@ const SA = rgb(palette[SURFACE.SAND]), SW = rgb(sandWet);
 const GV = rgb(palette[SURFACE.GRAVEL]), GVW = rgb(new THREE.Color(0x837c6d)); // braid gravel, dry and wet
 const PAL = {};
 for (const [k, c] of Object.entries(palette)) PAL[k] = rgb(c);
-const BR = rgb(new THREE.Color(RENDER.bedrockColour));
+const RH = rgb(new THREE.Color(RENDER.rockHardColour)), RS = rgb(new THREE.Color(RENDER.rockSoftColour));
 
 // Fine ground detail for close views: a grey grain texture multiplied into
 // the vertex colours, and matching bumps. Both tile every few metres in world
@@ -282,8 +283,10 @@ export function createTerrain() {
             const frac = Math.min(1, (Math.min(bedrock[i], hi) - lo) / span);
             const k = frac * Math.min(1, Math.max(0, (span / cell - 0.3) * 2));
             if (k > 0 && (s !== W || hi - h0 > st.bankHeight + 2)) {
-              const band = 0.84 + 0.16 * Math.sin(h0 * 3.7 + meadow[i] * 3);
-              r += (BR[0] * band - r) * k; g += (BR[1] * band - g) * k; b += (BR[2] * band - b) * k;
+              // Hard layers pale buff, soft layers red-brown, with faint bedding in each.
+              const C = rockHardness(h0, (cx + 0.5) * cell, st.valleySlope) ? RH : RS;
+              const band = 0.92 + 0.08 * Math.sin(h0 * 2.1 + meadow[i] * 3);
+              r += (C[0] * band - r) * k; g += (C[1] * band - g) * k; b += (C[2] * band - b) * k;
             }
           }
         }

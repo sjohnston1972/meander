@@ -3,7 +3,7 @@ import { Engine } from '../src/engine/engine.js';
 import { defaults, DT, VALLEY, CENTRELINE, FLOODPLAIN } from '../src/config.js';
 import { cellIndex } from '../src/engine/floodplain.js';
 
-const LONG = 60000;
+const LONG = 180000;
 const fast = { ...defaults, quality: 'low', floodFrequency: 0 };
 const run = (e, ticks) => { for (let i = 0; i < ticks; i++) e.tick(); };
 

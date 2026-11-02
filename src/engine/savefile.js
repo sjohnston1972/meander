@@ -95,6 +95,7 @@ export function validateState(state) {
   const n0 = state.x?.length;
   if (!finite(state.x) || !finite(state.y) || state.y.length !== n0 || n0 < 16 || n0 > 50000) fail('centreline');
   if (!inside(state.x, state.y)) fail('centreline outside the valley');
+  if (state.inletY !== undefined && !num(state.inletY, 0, VALLEY.width)) fail('inlet');
   // rate and curvature are from before the last re-spacing, so their length may
   // differ (the engine checks before using them); the water level must match.
   for (const k of ['rate', 'curv']) if (!finite(state[k]) || state[k].length > 50000) fail(k);

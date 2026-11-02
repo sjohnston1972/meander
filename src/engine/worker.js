@@ -162,6 +162,7 @@ function handle(m) {
     case 'speed': yearsPerSecond = m.yearsPerSecond; break;
     case 'flood': engine.triggerFlood(); break;
     case 'dropBase': engine.dropBaseLevel(m.metres); dirty = true; break;
+    case 'landslide': engine.triggerLandslide(); dirty = true; break;
     case 'paint': engine.paint(m.x, m.y, m.radius, m.on); dirty = true; break;
     default: break;
   }

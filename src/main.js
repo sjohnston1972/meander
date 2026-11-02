@@ -110,6 +110,10 @@ async function start() {
       else if (ev.type === 'chute') { toast(`Chute cutoff in year ${yr}`); effects.spawn('chute', ev.x, ev.y, groundHeight(ev.x, ev.y)); }
       else if (ev.type === 'flood') toast(`Flood in year ${yr}`);
       else if (ev.type === 'collapse') { toast(`Bank collapse in year ${yr}`); effects.spawn('collapse', ev.x, ev.y, groundHeight(ev.x, ev.y)); }
+      else if (ev.type === 'landslide') { toast(`Landslide in year ${yr}`); effects.spawn('collapse', ev.x, ev.y, groundHeight(ev.x, ev.y)); }
+      else if (ev.type === 'landslidedam') toast(`A landslide has dammed the river in year ${yr}`);
+      else if (ev.type === 'outburst') toast(`Landslide dam burst in year ${yr}: flood!`);
+      else if (ev.type === 'noWalls') toast('No valley wall is tall enough to give way yet. Turn up incision and let the river cut down');
     }
   });
 
@@ -158,6 +162,7 @@ async function start() {
     reset,
     flood() { sim.triggerFlood(); },
     dropBase() { sim.dropBaseLevel(CENTRELINE.baseLevelDrop); toast(`Base level dropped ${CENTRELINE.baseLevelDrop} m`); },
+    landslide() { sim.triggerLandslide(); },
     needsReset(key) {
       pendingReset.add(key);
       controls.showResetNote('Press Reset to apply: ' + [...pendingReset].join(', '));

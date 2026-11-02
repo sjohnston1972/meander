@@ -7,6 +7,9 @@ const ACCENT = {
   cutbank: RENDER.surfaceColours[SURFACE.EARTH], pointbar: RENDER.surfaceColours[SURFACE.SAND], scrollbar: RENDER.surfaceColours[SURFACE.SAND],
   oxbow: RENDER.lakeColour, marsh: RENDER.marshColour, levee: RENDER.surfaceColours[SURFACE.GRASS], neck: RENDER.surfaceColours[SURFACE.GRASS],
   terrace: RENDER.surfaceColours[SURFACE.EARTH], knickpoint: RENDER.foamColour,
+  landslide: RENDER.surfaceColours[SURFACE.EARTH], landslidedam: RENDER.surfaceColours[SURFACE.SCREE], landslidelake: RENDER.pondColour,
+  gully: RENDER.surfaceColours[SURFACE.EARTH], fan: RENDER.surfaceColours[SURFACE.GRAVEL], scree: RENDER.surfaceColours[SURFACE.SCREE],
+  rockledge: RENDER.rockHardColour, hangingloop: RENDER.surfaceColours[SURFACE.GRASS],
   braidbar: RENDER.surfaceColours[SURFACE.GRAVEL], braidchannel: RENDER.riffleColour, helical: RENDER.riffleColour, thalweg: RENDER.poolColour, pool: RENDER.poolColour, riffle: RENDER.riffleColour, flood: RENDER.floodColour,
 };
 const hex = (n) => '#' + n.toString(16).padStart(6, '0');

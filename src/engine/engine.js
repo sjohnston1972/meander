@@ -30,6 +30,7 @@ export class Engine {
     this.tickCount = 0;
     const { x, y } = initialCentreline(this.settings, this.rng);
     this.x = x; this.y = y;
+    this.inletY = y[0];
     this.oxbows = [];
     this.oxbowCount = 0;
     this.events = [];
@@ -46,6 +47,7 @@ export class Engine {
     this.braid = 0;             // 0 = one meandering channel, 1 = fully braided
     this.braidTime = 0;         // noise time that moves the braid threads about
     this.braidNoise = createNoise2D(this.settings.seed * 48271 + 5);
+    this.inflowNoise = createNoise2D(this.settings.seed * 69621 + 13);
     this.threads = null;        // { offsets[k][i], width, half } while braided
     this.slides = [];           // landslide debris pushing the river: [{ x, y, dirx, diry, width, age }]
     this.slideMarks = [];       // recent landslide scars, for labels: [{ x, y, year }]
@@ -73,7 +75,7 @@ export class Engine {
       rng: this.rng.getState(),
       year: this.year,
       tickCount: this.tickCount,
-      x: Float64Array.from(this.x), y: Float64Array.from(this.y),
+      x: Float64Array.from(this.x), y: Float64Array.from(this.y), inletY: this.inletY,
       rate: Float64Array.from(this.rate), curv: Float64Array.from(this.curv), level: Float64Array.from(this.level),
       oxbows: this.oxbows.map((o) => ({ ...o, x: o.x.slice(), y: o.y.slice(), cells: o.cells.slice() })),
       oxbowCount: this.oxbowCount,
@@ -106,6 +108,7 @@ export class Engine {
     this.year = st.year;
     this.tickCount = st.tickCount;
     this.x = Float64Array.from(st.x); this.y = Float64Array.from(st.y);
+    this.inletY = st.inletY ?? VALLEY.width / 2;
     this.rate = Float64Array.from(st.rate); this.curv = Float64Array.from(st.curv); this.level = Float64Array.from(st.level);
     this.oxbows = st.oxbows.map((o) => ({ ...o, x: Float32Array.from(o.x), y: Float32Array.from(o.y), cells: Int32Array.from(o.cells) }));
     this.oxbowCount = st.oxbowCount;
@@ -119,6 +122,7 @@ export class Engine {
     this.braid = st.braid ?? 0;
     this.braidTime = st.braidTime ?? 0;
     this.braidNoise = createNoise2D(this.settings.seed * 48271 + 5);
+    this.inflowNoise = createNoise2D(this.settings.seed * 69621 + 13);
     this.threads = null;
     this.slides = (st.slides || []).map((v) => ({ x: v.x, y: v.y, dirx: v.dirx, diry: v.diry, width: v.width, age: v.age }));
     this.slideMarks = (st.slideMarks || []).map((v) => ({ x: v.x, y: v.y, year: v.year }));
@@ -413,8 +417,11 @@ export class Engine {
     if (this.slides.length) this.pushFromSlides(rate);
     this.rate = rate;
 
-    // 3. Move, re-space.
+    // 3. Move, re-space. Bends passing just upstream of the valley swing
+    // the river's entry point slowly from side to side.
     migrate(this.x, this.y, rate, DT);
+    const yIn = this.inletY + CENTRELINE.inletWander * W * (2 * this.inflowNoise(this.year / CENTRELINE.inflowYears, 0.37) - 1);
+    for (let i = 0; i < prot; i++) this.y[i] = yIn;
     if (CENTRELINE.smoothingPasses > 0) {
       smooth(this.x, CENTRELINE.smoothingPasses);
       smooth(this.y, CENTRELINE.smoothingPasses);
@@ -445,8 +452,8 @@ export class Engine {
     if (this.tickCount % FLOODPLAIN.landEveryTicks === 0) {
       growLand(this.grid, s, this.landDt, this.flood);
       if (this.incision > 0 || this.knickpoints.length) {
+        this.spontaneousSlides(this.landDt); // first, so fresh debris slumps to a stable slope at once
         relaxSlopes(this.grid, s, this.landDt);
-        this.spontaneousSlides(this.landDt);
       }
       if (this.dams.length) this.updateDams(this.landDt);
       this.landDt = 0;
@@ -512,7 +519,10 @@ export class Engine {
       const site = findSlideSite(g, this.rng.int(g.height.length));
       if (site && (!best || site.height > best.height)) best = site;
     }
-    if (!best) return false;
+    if (!best) {
+      this.events.push({ type: 'noWalls', x: VALLEY.length / 2, y: VALLEY.width / 2, year: this.year });
+      return false;
+    }
     this.slide(best);
     return true;
   }
@@ -842,8 +852,49 @@ export class Engine {
         out.push({ type: 'knickpoint', x: this.x[i], y: this.y[i], level: this.level[i] });
       }
     }
+    this.wallFeatures(out);
     if (this.flood > 0) out.push({ type: 'flood', x: this.x[Math.floor(n / 2)], y: this.y[Math.floor(n / 2)], level: this.level[Math.floor(n / 2)] + 1 });
     return out;
+  }
+
+  // Explain-mode features of the valley walls: recent landslides, dams and
+  // their lakes, gullies and their fans, and (from a sparse scan of the
+  // grid) scree and rock ledges.
+  wallFeatures(out) {
+    const g = this.grid;
+    for (const m of this.slideMarks) if (this.year - m.year < HILLS.slideLabelYears) out.push({ type: 'landslide', x: m.x, y: m.y });
+    for (const d of this.dams) {
+      out.push({ type: 'landslidedam', x: d.x, y: d.y, level: d.crest });
+      if (d.cells.length > 20) {
+        const i = d.cells[Math.floor(d.cells.length / 2)];
+        const cx = i % g.cols, cy = (i - cx) / g.cols;
+        out.push({ type: 'landslidelake', x: (cx + 0.5) * g.cell, y: (cy + 0.5) * g.cell, level: d.crest });
+      }
+    }
+    for (const v of this.gullies) {
+      if (v.length < 80) continue;
+      const k = Math.min(v.px.length - 1, Math.floor(v.length / 80)); // about halfway up (points are 40 m apart)
+      out.push({ type: 'gully', x: v.px[k], y: v.py[k] });
+      out.push({ type: 'fan', x: v.x - v.dirx * 60, y: v.y - v.diry * 60 });
+    }
+    if (!(this.incision > 0 || this.knickpoints.length)) return;
+    const { cols, rows, cell, height, surface, veg, bedrock, channel } = g;
+    const hard = cell * HILLS.hardRockSlope * 0.6;
+    let scree = 0, ledges = 0;
+    const picked = [];
+    const apart = (x, y) => picked.every((p) => (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y) > 600 * 600);
+    for (let cy = 2; cy < rows - 2 && (scree < 2 || ledges < 2); cy += 3) {
+      for (let cx = 2 + (cy % 2); cx < cols - 2; cx += 5) {
+        const i = cy * cols + cx;
+        if (channel[i]) continue;
+        const x = (cx + 0.5) * cell, y = (cy + 0.5) * cell;
+        if (scree < 2 && surface[i] === SURFACE.SCREE && veg[i] < 0.5 && apart(x, y)) {
+          out.push({ type: 'scree', x, y }); picked.push({ x, y }); scree++;
+        } else if (ledges < 2 && height[i] < bedrock[i] - 2 && height[i] - Math.min(height[i + 1], height[i - 1], height[i + cols], height[i - cols]) > hard && apart(x, y)) {
+          out.push({ type: 'rockledge', x, y }); picked.push({ x, y }); ledges++;
+        }
+      }
+    }
   }
 
   // Explain-mode features of a braided reach: the widest bars between

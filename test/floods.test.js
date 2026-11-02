@@ -29,14 +29,18 @@ describe('floods', () => {
     expect(chutes).toBe(0);
   });
 
-  it('neck cutoffs are the common kind at default settings', { timeout: LONG }, () => {
-    const e = new Engine(fast);
+  // Judged over three rivers: one river makes too few cutoffs in 2000 years
+  // for its ratio to mean much.
+  it('neck cutoffs are a large share at default settings', { timeout: LONG * 5 }, () => {
     let necks = 0, chutes = 0;
-    for (let t = 0; t < 2000 / DT; t++) {
-      e.tick();
-      for (const ev of e.snapshot().events) { if (ev.type === 'neck') necks++; else if (ev.type === 'chute') chutes++; }
+    for (const seed of [1, 2, 3]) {
+      const e = new Engine({ ...fast, seed });
+      for (let t = 0; t < 2000 / DT; t++) {
+        e.tick();
+        for (const ev of e.snapshot().events) { if (ev.type === 'neck') necks++; else if (ev.type === 'chute') chutes++; }
+      }
     }
-    expect(necks).toBeGreaterThanOrEqual(2);
+    expect(necks).toBeGreaterThanOrEqual(6);
     expect(chutes).toBeLessThanOrEqual(necks * 2);
   });
 });

@@ -139,6 +139,8 @@ export const CENTRELINE = {
   gorgeBankFloor: 0.7,     // tall and rocky banks together slow migration to no less than this; lower and loops stop growing in a gorge
   bankHeightExponent: 0.25, // tall banks slow retreat as (normal/actual)^this; higher and an incising river straightens
   endProtection: 6,        // points at each end that never migrate or cut off
+  inletWander: 3,          // channel widths the river's entry point swings either side, as bends pass just upstream of the valley
+  inflowYears: 150,        // years for the entry point to swing from one side to the other, roughly
   wallMarginWidths: 8,     // erodibility fades to zero this many widths from the valley walls
   outletFadeFraction: 0.12, // fraction of valley length before the outlet where migration fades out
   chuteMinWidths: 6,       // chute cutoff must short-cut at least this many widths of river
@@ -230,6 +232,7 @@ export const HILLS = {
   drainDrop: 1.5,          // metres the river must cut below an oxbow before the oxbow drains, left hanging
   drainYears: 20,          // years a hanging loop's lake takes to seep away
   hangingKeep: 6,          // hanging loops remembered for Explain labels
+  slideLabelYears: 300,    // Explain mode labels a landslide scar for this long
 };
 
 // --- Braided rivers ---
@@ -286,6 +289,9 @@ export const RENDER = {
   lakeColour: 0x3f7a78,    // fresh oxbow lake (stiller, a touch greener than the river)
   marshColour: 0x5f7f4a,   // infilled oxbow
   bedrockColour: 0x857d72, // bedrock exposed in terrace walls
+  rockHardColour: 0xb7a184, // hard rock layers: pale buff cliffs
+  rockSoftColour: 0x8a6a55, // soft rock layers: red-brown slopes
+  pondColour: 0x3a6e78,    // landslide lake
   foamColour: 0xdfeef0,    // white water over a knickpoint
   surfaceColours: {
     0: 0x5d8a3a,           // GRASS
@@ -406,6 +412,7 @@ export const HELP = {
   record: 'Record the view as a video, with the year in the corner. Play the river fast and move the camera as you like; press again to stop and save (3 minutes at most)',
   saveFile: 'Download the whole river, landscape and history as a .meander file you can open again later',
   openFile: 'Open a .meander file saved earlier and carry on from where it was',
+  landslide: 'Make the tallest valley wall give way now. Walls only get tall enough once the river has cut well down (turn up incision)',
   restorePrevious: 'Bring back the river you had before the current one (kept when it ran at least 100 years). Your river is also saved in this browser automatically'
 };
 
@@ -470,6 +477,38 @@ export const EXPLANATIONS = {
   braidchannel: {
     title: 'Braided channel',
     text: 'One of many shallow threads that split and rejoin across the gravel. Floods shift them about, so the pattern is never the same twice.',
+  },
+  landslide: {
+    title: 'Landslide',
+    text: 'Part of the valley wall gave way. The river undercut it, or a flood soaked it, until it was too steep to stand. The bare scar is where it broke off; the debris lies below.',
+  },
+  landslidedam: {
+    title: 'Landslide dam',
+    text: 'Landslide debris blocked the river. Water spills over the top and wears it down, but a dam like this can also burst and send a flood down the valley.',
+  },
+  landslidelake: {
+    title: 'Landslide lake',
+    text: 'The river backed up behind a landslide dam and drowned the valley floor. Silt settles on the bottom, and when the dam goes the lake drains away.',
+  },
+  gully: {
+    title: 'Gully',
+    text: 'A side valley cut by rain running off the plateau. It eats back into the land at its head, and floods carry what it washes out down to its mouth.',
+  },
+  fan: {
+    title: 'Alluvial fan',
+    text: 'Where a gully meets the valley floor its water spreads out and slows, dropping its gravel in a low cone.',
+  },
+  scree: {
+    title: 'Scree',
+    text: 'Broken rock that has fallen from the cliffs above and piled up at their foot. Plants take a long time to take hold on it.',
+  },
+  rockledge: {
+    title: 'Rock ledges',
+    text: 'Hard rock layers stand as cliffs and the softer layers between them wear back into slopes, so the valley wall rises in steps.',
+  },
+  hangingloop: {
+    title: 'Abandoned meander',
+    text: 'A loop the river cut off while it was cutting down. The river is now below it, so its water drained away, leaving a dry curved valley high on the side.',
   },
   flood: {
     title: 'Flood',

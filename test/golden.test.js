@@ -10,10 +10,12 @@ import { fingerprint } from './helpers.js';
 // to incising rivers, and when the engine moved to its own deterministic
 // maths (src/engine/dmath.js) so the same link gives the same river in every
 // browser. scripts/determinism.mjs checks Chromium, Firefox and WebKit.
+// 2026-11-02 (v1.2): re-pinned on purpose: the river's entry point now
+// swings slowly, so the reach below the inlet winds instead of staying straight.
 const GOLDEN = {
-  1: '10be64bd:414:0',
-  2: 'b2068e3a:348:1',
-  3: '5c5b5bb4:251:0',
+  1: '40d5b3c9:406:2',
+  2: 'f7ed49c0:353:1',
+  3: 'cd7952ca:351:1',
 };
 
 describe('default rivers are unchanged', () => {

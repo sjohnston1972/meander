@@ -1,4 +1,4 @@
-// River ribbon, oxbow lakes and the flood sheet. Only draws what the snapshot says.
+// River ribbon, oxbow lakes, landslide lakes and the flood sheet. Only draws what the snapshot says.
 import * as THREE from 'three';
 import { VALLEY, RENDER, FLOODPLAIN } from '../config.js';
 
@@ -125,6 +125,37 @@ function finishRibbon(mesh, points, segmentsUsed, layout = points) {
   mesh.visible = points > 1;
 }
 
+// One square per flooded cell at height 0 (the mesh is lifted to the lake level).
+function pondGeometry(cells, cols, cell) {
+  const n = cells.length;
+  const pos = new Float32Array(n * 12), nor = new Float32Array(n * 12), uv = new Float32Array(n * 8);
+  const idx = new Uint32Array(n * 6);
+  const h = cell * 0.5;
+  const R = RENDER.rippleMetres;
+  for (let k = 0; k < n; k++) {
+    const i = cells[k];
+    const cx = i % cols, cy = (i - cx) / cols;
+    const x = (cx + 0.5) * cell, z = (cy + 0.5) * cell;
+    const corners = [[x - h, z - h], [x + h, z - h], [x - h, z + h], [x + h, z + h]];
+    for (let c = 0; c < 4; c++) {
+      const v = k * 4 + c;
+      pos[v * 3] = corners[c][0] - VALLEY.length / 2;
+      pos[v * 3 + 2] = corners[c][1] - VALLEY.width / 2;
+      nor[v * 3 + 1] = 1;
+      uv[v * 2] = corners[c][0] / R;
+      uv[v * 2 + 1] = corners[c][1] / R;
+    }
+    const b = k * 4;
+    idx.set([b, b + 2, b + 1, b + 1, b + 2, b + 3], k * 6);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  return g;
+}
+
 export function createWater() {
   const normalMap = makeNormalMap();
   const riverMaterial = new THREE.MeshStandardMaterial({
@@ -155,6 +186,11 @@ export function createWater() {
   threads.renderOrder = 2;
   threads.visible = false;
   const lakes = new Map();
+  const ponds = new Map(); // landslide lakes by dam id: { mesh, key }
+  const pondMaterial = new THREE.MeshStandardMaterial({
+    color: RENDER.pondColour, transparent: true, opacity: 0.8, roughness: 0.1, metalness: 0.05,
+    normalMap, normalScale: new THREE.Vector2(0.07, 0.07), depthWrite: false,
+  });
 
   // A fixed ribbon for one oxbow loop, with its own material for tinting.
   function buildLake(o, exaggeration) {
@@ -284,6 +320,38 @@ export function createWater() {
       lake.mesh.geometry.dispose();
       lake.mesh.material.dispose();
       lakes.delete(key);
+    }
+
+    // Landslide lakes: a flat sheet over the flooded cells at the dam crest;
+    // the ground above the water hides its edges, so the shore follows the
+    // terrain. Rebuilt only when the flooded cells change.
+    const seenPonds = new Set();
+    for (const p of snapshot.ponds || []) {
+      if (!p.cells.length) continue;
+      seenPonds.add(p.id);
+      let pond = ponds.get(p.id);
+      if (!pond) {
+        pond = { mesh: new THREE.Mesh(new THREE.BufferGeometry(), pondMaterial), key: '' };
+        pond.mesh.renderOrder = 2;
+        pond.mesh.frustumCulled = false;
+        group.add(pond.mesh);
+        ponds.set(p.id, pond);
+      }
+      const n = p.cells.length;
+      const key = `${n}:${p.cells[0]}:${p.cells[n >> 1]}:${p.cells[n - 1]}`;
+      if (pond.key !== key) {
+        pond.mesh.geometry.dispose();
+        pond.mesh.geometry = pondGeometry(p.cells, snapshot.grid.cols, snapshot.grid.cell);
+        pond.key = key;
+      }
+      pond.mesh.position.y = p.level * exaggeration + 0.05 + floodLift * 0.5;
+    }
+    pondMaterial.opacity = opacity * 0.95;
+    for (const [id, pond] of ponds) {
+      if (seenPonds.has(id)) continue;
+      group.remove(pond.mesh);
+      pond.mesh.geometry.dispose();
+      ponds.delete(id);
     }
 
     // Flood sheet.
