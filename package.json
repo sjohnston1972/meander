@@ -11,7 +11,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "deploy": "vite build && wrangler deploy"
+    "deploy": "vite build && wrangler deploy",
+    "test:quick": "vitest run --exclude test/incision.test.js --exclude test/gorge.test.js --exclude test/climate.test.js --exclude test/floods.test.js --exclude test/gully.test.js --exclude test/landslide.test.js --exclude test/braided.test.js"
   },
   "keywords": [],
   "author": "",

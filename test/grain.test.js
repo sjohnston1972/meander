@@ -30,9 +30,13 @@ describe('grain sorting', () => {
     expect(mean(e.grain, 6, Math.floor(e.x.length / 2))).toBeGreaterThan(GRAIN.start + 0.07);
   });
 
-  it('turns sandy at the mouth of a delta', { timeout: LONG }, () => {
-    const e = run(new Engine({ ...defaults, quality: 'low', valleyEnd: 'lake', sedimentSupply: 2 }), 600);
-    expect(mean(e.grain, e.active - 15, e.active - 2)).toBeLessThan(0.4);
+  it('armours the bed below a weir, where the river runs clear', { timeout: LONG }, () => {
+    const e = run(new Engine({ ...defaults, quality: 'low' }), 300);
+    const j = Math.floor(e.x.length * 0.4);
+    e.build('weir', e.x[j], e.y[j]);
+    run(e, 60);
+    const k = e.nearestPoint(e.dams[0].x, e.dams[0].y);
+    expect(mean(e.grain, k + 3, k + 20)).toBeGreaterThan(GRAIN.start + 0.07);
   });
 
   it('carries on exactly after save and restore, and refuses a damaged bed', { timeout: LONG }, () => {

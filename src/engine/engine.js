@@ -673,17 +673,20 @@ export class Engine {
       const T = tIn + L[i], G = Math.min(T, gIn + Lg[i]);
       const w = typeof width === 'number' ? width : width[i];
       const fout = i < n - 1 ? (pool[i] ? 0 : Math.max(0, kf[i] * S[i] - (kf[i] / ds) * (z[i + 1] - z[i]))) : Math.max(0, out);
-      const p = T > 1e-9 ? G / T : g[i];
       const dz = z[i] - z0[i];
       const h = Math.min(la, Math.abs(dz));
+      const dep = Math.abs(dz) * (1 - por) * w * ds / DT; // m^3/yr laid down or picked up
+      // More laid down than arrived by the faces: the rest spilled over a
+      // full bed upstream (or a full lake), mixed like the bed it came from.
+      const p = dz >= 0 && T < dep ? (G + g[i] * (dep - T)) / dep : T > 1e-9 ? G / T : g[i];
       let gOut;
       if (dz >= 0) {
         const gd = Math.min(1, p + GRAIN.sorting * p * (1 - p));
-        gOut = G - gd * dz * (1 - por) * w * ds / DT;
+        gOut = G - gd * dep;
         g[i] += (gd - g[i]) * (h / la);
       } else {
         const ge = g[i] * (1 - GRAIN.armour * (1 - g[i]));
-        gOut = G + ge * -dz * (1 - por) * w * ds / DT;
+        gOut = G + ge * dep;
         g[i] = (g[i] * la - ge * h + GRAIN.start * h) / la; // the scour reaches the mixed ground beneath
       }
       if (g[i] < 0) g[i] = 0; else if (g[i] > 1) g[i] = 1;

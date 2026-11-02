@@ -75,7 +75,8 @@ describe('save and resume', () => {
   it('a gorge with landslides, dams, gullies and hanging loops carries on exactly after a save', { timeout: 300000 }, () => {
     const s = { ...defaults, quality: 'low', incisionRate: 15 };
     const a = new Engine(s);
-    run(a, 2500 / 0.25);
+    run(a, 2000 / 0.25);
+    for (let k = 0; k < 40 && !a.gullies.length; k++) run(a, 50 / 0.25); // gullies come when they come
     a.triggerLandslide();
     const n = a.x.length;
     a.makeDam(Math.floor(n * 0.6), 1.2);
