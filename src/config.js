@@ -218,6 +218,18 @@ export const HILLS = {
   damFailChance: 0.004,    // chance per year that a dam damMinHeight tall bursts (taller dams are likelier to)
   damSpacing: 500,         // metres: no new dam this close to an existing one
   lakeInfill: 0.02,        // m/yr silt settles on a landslide lake's floor
+  gullyChance: 0.0005,     // chance a checked cell on a wall slideMinHeight tall starts a gully that year
+  maxGullies: 24,
+  gullySpacing: 300,       // metres between gully mouths
+  gullyRate: 0.15,         // m/yr a gully head cuts back into the plateau (faster in floods)
+  gullyMinLength: 200,     // metres a gully grows to, at least ...
+  gullyMaxLength: 700,     // ... and at most
+  gullyGradient: 0.08,     // rise over run of a gully floor from its mouth
+  fanRadius: 0.3,          // a gully's fan spreads this fraction of its length from the mouth
+  fanFraction: 0.7,        // fraction of what a gully washes out that stays in its fan
+  drainDrop: 1.5,          // metres the river must cut below an oxbow before the oxbow drains, left hanging
+  drainYears: 20,          // years a hanging loop's lake takes to seep away
+  hangingKeep: 6,          // hanging loops remembered for Explain labels
 };
 
 // --- Braided rivers ---

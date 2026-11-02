@@ -4,6 +4,7 @@
 // that sheds rock from steep faces onto scree at their foot.
 import { VALLEY, SURFACE, FLOODPLAIN, HILLS } from '../config.js';
 import { effectiveDepth } from './floodplain.js';
+import { sin, cos } from './dmath.js';
 
 // 1 in a hard rock layer, 0 in a soft one. Layers are flat beds that dip
 // with the valley, so a layer keeps its height above the valley floor.
@@ -181,4 +182,89 @@ export function landslide(grid, settings, site, rng) {
     intoRiver: weights > 0 ? (keep * riverWeight * area) / weights : 0,
     riverDepth: deepest,
   };
+}
+
+// A new gully at the foot of the wall `site`, heading into it. Its course
+// (a gently wandering line, up to its full length) is fixed now; it grows
+// headward along it.
+export function newGully(site, rng) {
+  const max = rng.range(HILLS.gullyMinLength, HILLS.gullyMaxLength);
+  const px = [site.footX], py = [site.footY];
+  let ux = -site.dirx, uy = -site.diry;
+  const step = 40;
+  for (let s = step; s <= max + step; s += step) {
+    if (s > step) {
+      const a = rng.range(-0.15, 0.15), c = cos(a), sn = sin(a);
+      [ux, uy] = [ux * c - uy * sn, ux * sn + uy * c];
+    }
+    // Stay inside the valley.
+    const x = Math.min(VALLEY.length - 30, Math.max(30, px[px.length - 1] + ux * step));
+    const y = Math.min(VALLEY.width - 30, Math.max(30, py[py.length - 1] + uy * step));
+    px.push(x); py.push(y);
+  }
+  return { x: site.footX, y: site.footY, dirx: -site.dirx, diry: -site.diry, px, py, length: 0, maxLength: max, footZ: Infinity, age: 0 };
+}
+
+// One land update of a gully: it lengthens headward (faster in floods), its
+// floor is cut down to a gentle grade from the mouth, and what it washes
+// out spreads as a fan beyond the mouth. Slumping (relaxSlopes) widens the
+// cut into a V.
+export function growGully(grid, settings, gully, dt, flood) {
+  const { cols, rows, cell, height, channel, surface, veg } = grid;
+  gully.age += dt;
+  gully.length = Math.min(gully.maxLength, gully.length + HILLS.gullyRate * dt * (1 + 2 * flood));
+  const mouth = cellAt(grid, gully.x, gully.y);
+  if (!channel[mouth]) gully.footZ = Math.min(gully.footZ, height[mouth]);
+  if (!Number.isFinite(gully.footZ)) return;
+  const id = ++grid.stampId;
+  const stamp = grid.stamp;
+  let removed = 0;
+  let s = 0;
+  const { px, py } = gully;
+  const half = cell * 0.5;
+  for (let k = 0; k < px.length - 1 && s < gully.length; k++) {
+    const dx = px[k + 1] - px[k], dy = py[k + 1] - py[k];
+    const segLen = Math.sqrt(dx * dx + dy * dy) || 1;
+    for (let t = 0; t < segLen && s + t < gully.length; t += half) {
+      const i = cellAt(grid, px[k] + (dx * t) / segLen, py[k] + (dy * t) / segLen);
+      if (stamp[i] === id || channel[i]) continue;
+      stamp[i] = id;
+      const floor = gully.footZ + HILLS.gullyGradient * (s + t);
+      if (height[i] > floor) {
+        removed += height[i] - floor;
+        if (height[i] - floor > 0.5) { surface[i] = SURFACE.EARTH; veg[i] *= 0.5; }
+        height[i] = floor;
+      }
+    }
+    s += segLen;
+  }
+  if (removed <= 0) return;
+  // The fan: a low cone spreading out from the mouth, away from the wall.
+  const R = Math.max(2 * cell, HILLS.fanRadius * gully.length);
+  const keep = removed * HILLS.fanFraction;
+  const x0 = Math.max(0, Math.floor((gully.x - R) / cell)), x1 = Math.min(cols - 1, Math.floor((gully.x + R) / cell));
+  const y0 = Math.max(0, Math.floor((gully.y - R) / cell)), y1 = Math.min(rows - 1, Math.floor((gully.y + R) / cell));
+  const fan = [];
+  let weights = 0;
+  for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+    const ox = (cx + 0.5) * cell - gully.x, oy = (cy + 0.5) * cell - gully.y;
+    if (ox * gully.dirx + oy * gully.diry >= 0) continue; // only out from the wall
+    const r = Math.sqrt(ox * ox + oy * oy);
+    if (r >= R) continue;
+    const w = 1 - r / R;
+    weights += w;
+    const i = cy * cols + cx;
+    if (!channel[i]) fan.push(i, w); // fan on the river is the river's to carry off
+  }
+  for (let p = 0; p < fan.length; p += 2) {
+    const i = fan[p], add = (keep * fan[p + 1]) / weights;
+    height[i] += add;
+    if (add > 0.01 && surface[i] !== SURFACE.WATER) { surface[i] = SURFACE.GRAVEL; veg[i] *= 0.9; }
+  }
+}
+
+function cellAt(grid, x, y) {
+  const cx = Math.min(grid.cols - 1, Math.max(0, Math.floor(x / grid.cell)));
+  const cy = Math.min(grid.rows - 1, Math.max(0, Math.floor(y / grid.cell)));
+  return cy * grid.cols + cx;
 }

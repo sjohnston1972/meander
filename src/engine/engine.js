@@ -14,7 +14,7 @@ import {
 import {
   createGrid, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth, cellIndex, setAlluvium, stampBraided,
 } from './floodplain.js';
-import { relaxSlopes, findSlideSite, landslide } from './hillslope.js';
+import { relaxSlopes, findSlideSite, landslide, newGully, growGully } from './hillslope.js';
 import { fillPond } from './dams.js';
 import { exp, pow, hypot } from './dmath.js';
 
@@ -49,6 +49,8 @@ export class Engine {
     this.threads = null;        // { offsets[k][i], width, half } while braided
     this.slides = [];           // landslide debris pushing the river: [{ x, y, dirx, diry, width, age }]
     this.slideMarks = [];       // recent landslide scars, for labels: [{ x, y, year }]
+    this.hangingLoops = [];     // loops left high and dry by a river cutting down: [{ x, y, year }]
+    this.gullies = [];          // side gullies cutting back into the valley walls (see hillslope.newGully)
     this.dams = [];             // landslide dams: [{ id, x, y, crest, natural, age, radius, cells }]
     this.damCount = 0;
     this.rate = new Float64Array(x.length);
@@ -83,6 +85,8 @@ export class Engine {
       braid: this.braid, braidTime: this.braidTime,
       slides: this.slides.map((v) => ({ ...v })), slideMarks: this.slideMarks.map((v) => ({ ...v })),
       dams: this.dams.map((d) => ({ ...d, cells: d.cells.slice() })), damCount: this.damCount,
+      gullies: this.gullies.map((v) => ({ ...v, px: v.px.slice(), py: v.py.slice() })),
+      hangingLoops: this.hangingLoops.map((v) => ({ ...v })),
       landDt: this.landDt,
       grid: {
         cols: g.cols, rows: g.rows, cell: g.cell, slope: g.slope, bankHeight: g.bankHeight,
@@ -120,6 +124,11 @@ export class Engine {
     this.slideMarks = (st.slideMarks || []).map((v) => ({ x: v.x, y: v.y, year: v.year }));
     this.dams = (st.dams || []).map((d) => ({ id: d.id, x: d.x, y: d.y, crest: d.crest, natural: d.natural, age: d.age, radius: d.radius, cells: Int32Array.from(d.cells) }));
     this.damCount = st.damCount ?? 0;
+    this.hangingLoops = (st.hangingLoops || []).map((v) => ({ x: v.x, y: v.y, year: v.year }));
+    this.gullies = (st.gullies || []).map((v) => ({
+      x: v.x, y: v.y, dirx: v.dirx, diry: v.diry, px: Array.from(v.px), py: Array.from(v.py),
+      length: v.length, maxLength: v.maxLength, footZ: v.footZ, age: v.age,
+    }));
     this.landDt = st.landDt;
     const g = st.grid;
     const n = g.cols * g.rows;
@@ -483,8 +492,15 @@ export class Engine {
     const flood = 1 + (HILLS.slideFloodFactor - 1) * this.flood;
     for (let k = 0; k < HILLS.slideSamples; k++) {
       const site = findSlideSite(g, this.rng.int(n));
-      if (site && this.rng.chance(HILLS.slideChance * dt * flood * (site.height / HILLS.slideMinHeight))) this.slide(site);
+      if (!site) continue;
+      const tall = site.height / HILLS.slideMinHeight;
+      if (this.rng.chance(HILLS.slideChance * dt * flood * tall)) this.slide(site);
+      else if (this.gullies.length < HILLS.maxGullies && this.rng.chance(HILLS.gullyChance * dt * tall)
+        && !this.gullies.some((v) => hypot(v.x - site.footX, v.y - site.footY) < HILLS.gullySpacing)) {
+        this.gullies.push(newGully(site, this.rng));
+      }
     }
+    for (const v of this.gullies) growGully(g, this.settings, v, dt, this.flood);
   }
 
   // The Landslide button: fail the tallest wall among a few hundred looked at.
@@ -689,12 +705,23 @@ export class Engine {
   ageOxbows() {
     const s = this.settings;
     const rate = (this.depth / FLOODPLAIN.oxbowInfillYears) * s.infillRate * DT;
+    const cutting = this.incision > 0 || this.knickpoints.length > 0;
     for (let k = this.oxbows.length - 1; k >= 0; k--) {
       const o = this.oxbows[k];
       o.age += DT;
-      o.depth -= rate;
+      // A loop cut off from a river that is cutting down is left hanging:
+      // once the river is well below it, its water seeps away.
+      if (cutting && !o.draining && this.tickCount % 8 === 0 && this.level[this.nearestPoint(o.x[0], o.y[0])] < o.level - HILLS.drainDrop) {
+        o.draining = true;
+        o.drainRate = o.depth / HILLS.drainYears;
+      }
+      o.depth -= o.draining ? Math.max(rate, o.drainRate * DT) : rate;
       if (o.depth <= 0) {
         retireOxbow(this.grid, o);
+        if (o.draining) {
+          this.hangingLoops.push({ ...this.loopLabelPoint(o), year: this.year });
+          if (this.hangingLoops.length > HILLS.hangingKeep) this.hangingLoops.shift();
+        }
         this.oxbows.splice(k, 1);
         continue;
       }
@@ -705,6 +732,17 @@ export class Engine {
         o.lastStampDepth = o.depth;
       }
     }
+  }
+
+  // The point of an abandoned loop furthest from its chord.
+  loopLabelPoint(o) {
+    const ax = o.x[0], ay = o.y[0], bx = o.x[o.x.length - 1], by = o.y[o.y.length - 1];
+    let best = 0, bestD = -1;
+    for (let p = 0; p < o.x.length; p++) {
+      const d = Math.abs((bx - ax) * (ay - o.y[p]) - (ax - o.x[p]) * (by - ay));
+      if (d > bestD) { bestD = d; best = p; }
+    }
+    return { x: o.x[best], y: o.y[best] };
   }
 
   // Explain-mode features: where the labelled things are right now.
@@ -758,14 +796,10 @@ export class Engine {
     if (neck) out.push({ type: 'neck', x: (this.x[neck.i] + this.x[neck.j]) / 2, y: (this.y[neck.i] + this.y[neck.j]) / 2 });
     // Oxbows: label at the point of the loop furthest from its chord.
     for (const o of this.oxbows) {
-      const ax = o.x[0], ay = o.y[0], bx = o.x[o.x.length - 1], by = o.y[o.y.length - 1];
-      let best = 0, bestD = -1;
-      for (let p = 0; p < o.x.length; p++) {
-        const d = Math.abs((bx - ax) * (ay - o.y[p]) - (ax - o.x[p]) * (by - ay));
-        if (d > bestD) { bestD = d; best = p; }
-      }
-      out.push({ type: o.depth > FLOODPLAIN.oxbowMarshDepth ? 'oxbow' : 'marsh', x: o.x[best], y: o.y[best], level: o.level });
+      const p = this.loopLabelPoint(o);
+      out.push({ type: o.draining ? 'hangingloop' : o.depth > FLOODPLAIN.oxbowMarshDepth ? 'oxbow' : 'marsh', x: p.x, y: p.y, level: o.level });
     }
+    for (const h of this.hangingLoops) out.push({ type: 'hangingloop', x: h.x, y: h.y });
     // Levees: banks that stand above the floodplain after floods.
     let levees = 0, lastLevee = -100;
     for (let i = prot; i < (braided ? 0 : n - prot) && levees < 3; i += 6) {
