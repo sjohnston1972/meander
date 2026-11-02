@@ -64,3 +64,21 @@ halves the steps. Steep terrace scarps do use the flatter-diagonal split.
 
 Phone shots (`v11-phone-*`, from `node scripts/shoot-phone.mjs v11`): Pixel 7
 emulation with touch, Low quality, folded panel, touch toolbar, help sheet.
+
+## 2026-11-02: gorges (v1.2)
+
+`v12-gorge-*` from `node scripts/shoot-gorge.mjs v12`: seed 1 cutting down at
+15 m per 1000 years, at year 4000 (60 m below the old floodplain), Medium
+quality. The "before" is Steven's screenshot from v1.1: grey walls standing
+at one steep angle, and a dead-straight canyon below the inlet.
+
+| Change | Where it shows |
+| --- | --- |
+| The river keeps winding in its gorge and cuts off loops; no straight canyon below the inlet (its entry point swings slowly) | `-1-overview`, `-2-oblique` |
+| Loops cut off while cutting down are left hanging, dry, on the terraces | `-1-overview`, `-3-labels` |
+| Bedrock walls coloured by layer: pale buff hard cliffs, red-brown soft slopes, in steps | `-6-ledges`, `-5-gully` |
+| Rims rounded by creep; scree below the cliffs; gullies with fans | `-5-gully`, `-6-ledges` |
+| Landslide scars and debris (random, and the Landslide button) | `-4-landslide`, `-7-button` |
+| Explain labels for landslides, gullies, fans, scree, rock ledges, abandoned meanders | `-3-labels` |
+
+`v12-phone-*` are the usual phone checks (`node scripts/shoot-phone.mjs v12`).
