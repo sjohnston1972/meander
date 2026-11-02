@@ -91,5 +91,7 @@ export function validateState(state) {
   for (const k of ['year', 'tickCount', 'incision', 'discharge']) if (!Number.isFinite(state[k])) fail(k);
   if (!state.rng || !Number.isFinite(state.rng.state)) fail('random state');
   if (!Number.isFinite(g.alluvium)) fail('alluvium');
+  if (state.braid !== undefined && !(state.braid >= 0 && state.braid <= 1)) fail('braid');
+  if (state.braidTime !== undefined && !Number.isFinite(state.braidTime)) fail('braid time');
   if (!Array.isArray(state.knickpoints) || state.knickpoints.some((k) => !Number.isFinite(k.pos) || !Number.isFinite(k.drop))) fail('knickpoints');
 }

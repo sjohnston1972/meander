@@ -68,6 +68,7 @@ export function createControls(settings, actions) {
   const channel = gui.addFolder('Channel');
   add(channel, 'channelWidth').name('Width (m)');
   add(channel, 'channelDepth').name('Depth (m)');
+  add(channel, 'pattern', { Meandering: 'meandering', Braided: 'braided', Auto: 'auto' }).name('Channel pattern');
   add(channel, 'valleySlope').name('Valley slope (m/m)');
   add(channel, 'incisionRate').name('Incision (m per 1000 yr)');
   help(channel.add({ drop: () => actions.dropBase() }, 'drop').name('Drop base level 2 m'), 'dropBase');

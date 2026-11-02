@@ -2,7 +2,7 @@
 // type, an erodibility multiplier and a vegetation value. The channel is carved
 // into it every step; land the channel leaves behind becomes point bar; floods
 // build levees; low ground slowly rises back to floodplain level.
-import { VALLEY, QUALITY, SURFACE, FLOODPLAIN, THALWEG, CENTRELINE } from '../config.js';
+import { VALLEY, QUALITY, SURFACE, FLOODPLAIN, THALWEG, CENTRELINE, BRAID } from '../config.js';
 import { createNoise2D } from './random.js';
 
 // Floodplain top (no noise) at distance x down the valley.
@@ -268,6 +268,85 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
   grid.chanList = list;
 }
 
+// Carve a braided reach: several shallow threads wandering across a wide
+// gravel braidplain about the river's axis. `braid` holds each thread's
+// signed offset from the axis per axis point, the thread width and the belt
+// half-width. Ground inside the belt between threads becomes low gravel bars;
+// older, higher ground there is planed down; floods strip plants off the bars.
+export function stampBraided(grid, river, braid, settings, flood) {
+  const { x, y, level } = river;
+  const W = settings.channelWidth, D = effectiveDepth(settings);
+  const { offsets, width: w, widths, half } = braid;
+  const N = offsets.length;
+  const hw = w / 2;
+  const td = Math.max(FLOODPLAIN.edgeDepth + 0.1, D * BRAID.threadDepthFraction);
+  const hws = Array.from(widths, (v) => v / 2);
+  const { height, base, surface, veg, channel, chanLevel, lakeLost } = grid;
+  const prevList = grid.chanList;
+  for (const i of prevList) if (channel[i] === 1) channel[i] = 3;
+  const list = [];
+  const scour = flood > 0 ? Math.max(0, 1 - BRAID.vegScour * flood * river.dt) : 1;
+  const plane = BRAID.planeRate * river.dt;
+  const rise = W * BRAID.barRiseWidths;
+
+  forCellsNear(grid, x, y, half + hw, (i, u, t, s) => {
+    const lvl = level[s] + (level[s + 1] - level[s]) * t;
+    // Distance outside the nearest thread's edge (negative inside it), and
+    // where inside a thread, how far from its centre (q) and its size.
+    let edge = Infinity, q = 1, size = 1;
+    for (let k = 0; k < N; k++) {
+      const o = offsets[k][s] + (offsets[k][s + 1] - offsets[k][s]) * t;
+      const d = Math.abs(u - o);
+      if (d - hws[k] < edge) { edge = d - hws[k]; q = d / hws[k]; size = hws[k] / hw; }
+    }
+    if (edge <= 0) {
+      if (channel[i] === 2) lakeLost[i] = 1;
+      // Wider threads run deeper.
+      const deep = FLOODPLAIN.edgeDepth + (td * Math.min(1.5, size) - FLOODPLAIN.edgeDepth) * (1 - q * q);
+      height[i] = lvl - Math.max(FLOODPLAIN.edgeDepth, deep);
+      channel[i] = 1;
+      list.push(i);
+      chanLevel[i] = lvl;
+      const localBase = lvl - D + settings.bankHeight;
+      if (localBase < base[i]) base[i] = localBase;
+      surface[i] = SURFACE.WATER;
+      veg[i] = 0;
+      return;
+    }
+    if (channel[i] === 2 || Math.abs(u) > half) return;
+    // Braidplain between threads: bars rise from the water's edge to a low top.
+    const k = Math.min(1, edge / rise);
+    const top = lvl + BRAID.barLow + (BRAID.barHigh - BRAID.barLow) * k * k * (3 - 2 * k);
+    const localBase = lvl - D + settings.bankHeight;
+    if (localBase < base[i]) base[i] = localBase;
+    if (channel[i] === 3) {
+      // A thread has just moved off this cell: fresh gravel.
+      channel[i] = 0;
+      height[i] = top;
+      surface[i] = SURFACE.GRAVEL;
+      veg[i] = 0;
+      return;
+    }
+    if (height[i] > top + 0.05) {
+      height[i] = Math.max(top, height[i] - plane);
+      if (surface[i] !== SURFACE.ROCK) surface[i] = SURFACE.GRAVEL;
+      veg[i] *= 0.98;
+    }
+    veg[i] *= scour;
+  });
+
+  // Threads that left the belt altogether (the axis moved) leave gravel too.
+  for (const i of prevList) {
+    if (channel[i] === 3) {
+      channel[i] = 0;
+      height[i] = Math.min(base[i] - 0.3, chanLevel[i] + BRAID.barHigh);
+      surface[i] = grid.rock[i] ? SURFACE.ROCK : SURFACE.GRAVEL;
+      veg[i] = 0;
+    }
+  }
+  grid.chanList = list;
+}
+
 // Mark an oxbow's cells as lake and set its bed. With `carve` (at creation)
 // the bed is cut down to the lake bed; afterwards infill only raises it.
 export function stampOxbow(grid, oxbow, settings, carve = false) {
@@ -363,7 +442,7 @@ export function growLand(grid, settings, dt, flood = 0) {
     if (h < b) { h += aggrade; if (h > b) h = b; }
     if (silt > 0 && h < b + FLOODPLAIN.overbankMax) h += silt;
     height[i] = h;
-    if (s === SURFACE.SAND && v > 0.5) surface[i] = SURFACE.GRASS;
+    if ((s === SURFACE.SAND || s === SURFACE.GRAVEL) && v > 0.5) surface[i] = SURFACE.GRASS;
     else if (s === SURFACE.EARTH && v > 0.35) surface[i] = SURFACE.GRASS;
     else if (s === SURFACE.MARSH && v > 0.85 && h >= b - 0.15) surface[i] = SURFACE.GRASS;
     else if (s === SURFACE.WETLAND && v > 0.9) surface[i] = SURFACE.MARSH;

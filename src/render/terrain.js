@@ -27,6 +27,7 @@ const sandWet = new THREE.Color(0xb9a46e);     // bar surface near the water
 const rgb = (c) => [c.r, c.g, c.b];
 const GD = rgb(grassDry), GL = rgb(grassLush), GW = rgb(grassWet), GM = rgb(grassMeadow);
 const SA = rgb(palette[SURFACE.SAND]), SW = rgb(sandWet);
+const GV = rgb(palette[SURFACE.GRAVEL]), GVW = rgb(new THREE.Color(0x837c6d)); // braid gravel, dry and wet
 const PAL = {};
 for (const [k, c] of Object.entries(palette)) PAL[k] = rgb(c);
 const BR = rgb(new THREE.Color(RENDER.bedrockColour));
@@ -195,6 +196,14 @@ export function createTerrain() {
           let k = damp * 0.5;
           r = SA[0] + (SW[0] - SA[0]) * k; g = SA[1] + (SW[1] - SA[1]) * k; b = SA[2] + (SW[2] - SA[2]) * k;
           k = v * 1.2 > 1 ? 1 : v * 1.2;
+          r += (GL[0] - r) * k; g += (GL[1] - g) * k; b += (GL[2] - b) * k;
+        } else if (s === SURFACE.GRAVEL) {
+          // Braid bars: damp grey-brown at the water's edge, paler on the tops, greening as plants take hold.
+          let k = damp * 0.7 + (rel < -0.8 ? 0.3 : 0);
+          if (k > 1) k = 1;
+          const m = meadow[i] * 0.12;
+          r = GV[0] + (GVW[0] - GV[0]) * k + m * 0.1; g = GV[1] + (GVW[1] - GV[1]) * k + m * 0.08; b = GV[2] + (GVW[2] - GV[2]) * k;
+          k = v * 1.3 > 1 ? 1 : v * 1.3;
           r += (GL[0] - r) * k; g += (GL[1] - g) * k; b += (GL[2] - b) * k;
         } else if (s === SURFACE.WATER) {
           r = PAL[5][0]; g = PAL[5][1]; b = PAL[5][2];

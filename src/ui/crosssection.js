@@ -1,6 +1,6 @@
 // 2D side view of the channel at a clicked point: banks, water level, thalweg
 // and helical flow arrows. Pure presentation of values in the snapshot.
-import { THALWEG } from '../config.js';
+import { THALWEG, SURFACE } from '../config.js';
 
 export function createCrossSection() {
   const panel = document.getElementById('section');
@@ -31,15 +31,79 @@ export function createCrossSection() {
       const d = (c.x[i] - current.x) ** 2 + (c.y[i] - current.y) ** 2;
       if (d < bestD) { bestD = d; best = i; }
     }
-    if (Math.sqrt(bestD) > c.width * 1.5) { hide(); return; } // the river has left this spot
+    const reach = snapshot.braid ? snapshot.braid.half + c.width : c.width * 1.5;
+    if (Math.sqrt(bestD) > reach) { hide(); return; } // the river has left this spot
     current.snapshot = snapshot;
     current.index = best;
+  }
+
+  // A braided reach: the real ground across the whole gravel bed, measured
+  // from the floodplain grid, with water wherever a thread runs.
+  function drawMeasured(snapshot, index) {
+    const c = snapshot.centreline, g = snapshot.grid;
+    const n = c.x.length;
+    const i0 = Math.max(0, index - 1), i1 = Math.min(n - 1, index + 1);
+    const tx = c.x[i1] - c.x[i0], ty = c.y[i1] - c.y[i0];
+    const l = Math.hypot(tx, ty) || 1;
+    const nx = ty / l, ny = -tx / l;
+    const half = snapshot.braid.half + c.width * 2;
+    const N = 240;
+    const ground = new Float32Array(N + 1), wet = new Uint8Array(N + 1), kind = new Uint8Array(N + 1);
+    const lvl = c.level[index];
+    let lo = lvl - c.meanDepth, hi = lvl;
+    for (let k = 0; k <= N; k++) {
+      const u = -half + (2 * half * k) / N;
+      const cx = Math.min(g.cols - 1, Math.max(0, Math.floor((c.x[index] + nx * u) / g.cell)));
+      const cy = Math.min(g.rows - 1, Math.max(0, Math.floor((c.y[index] + ny * u) / g.cell)));
+      const ci = cy * g.cols + cx;
+      ground[k] = g.height[ci];
+      kind[k] = g.surface[ci];
+      wet[k] = g.surface[ci] === SURFACE.WATER && g.height[ci] < lvl ? 1 : 0;
+      lo = Math.min(lo, ground[k]); hi = Math.max(hi, ground[k]);
+    }
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    const px = (k) => (k / N) * w;
+    const top = h * 0.18, bottom = h * 0.92;
+    const py = (z) => top + ((hi - z) / Math.max(0.5, hi - lo)) * (bottom - top);
+    // Ground.
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    for (let k = 0; k <= N; k++) ctx.lineTo(px(k), py(ground[k]));
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    ctx.fillStyle = '#6b5a45';
+    ctx.fill();
+    // Surface: gravel bars grey-brown, plants green.
+    ctx.lineWidth = 4;
+    for (let k = 0; k < N; k++) {
+      const s = kind[k];
+      if (s === SURFACE.WATER) continue;
+      ctx.strokeStyle = s === SURFACE.GRAVEL ? '#a49b89' : s === SURFACE.SAND ? '#d2b97d' : '#5d8a3a';
+      ctx.beginPath(); ctx.moveTo(px(k), py(ground[k])); ctx.lineTo(px(k + 1), py(ground[k + 1])); ctx.stroke();
+    }
+    // Water in each thread.
+    const flood = snapshot.flood;
+    const surf = lvl + flood * (snapshot.settings.bankHeight - snapshot.settings.channelDepth + 0.6);
+    ctx.fillStyle = flood > 0 ? 'rgba(122,106,60,0.75)' : 'rgba(70,150,180,0.7)';
+    let threads = 0;
+    for (let k = 0; k <= N; k++) {
+      if (!wet[k] && !(flood > 0 && ground[k] < surf)) continue;
+      if (wet[k] && (k === 0 || !wet[k - 1])) threads++;
+      const z = Math.min(surf, ground[k]);
+      ctx.fillRect(px(k) - w / N / 2, py(surf), w / N + 0.5, py(z) - py(surf));
+    }
+    ctx.fillStyle = '#e8eef0'; ctx.font = '13px system-ui'; ctx.textAlign = 'left';
+    ctx.fillText(`${Math.round(2 * half)} m across`, 10, 18);
+    title.textContent = `Cross-section (year ${Math.floor(snapshot.year)})`;
+    text.textContent = `Braided reach: ${threads} thread${threads === 1 ? '' : 's'} of water here, each only about ${(c.meanDepth * 0.55).toFixed(1)} m deep, split by gravel bars. Floods rework the bars and shift the threads about.`;
   }
 
   function draw(dt) {
     if (!current) return;
     phase += dt * 1.5;
     const { snapshot, index } = current;
+    if (snapshot.braid && snapshot.braid.amount >= 0.5) { drawMeasured(snapshot, index); return; }
     const c = snapshot.centreline;
     const s = snapshot.settings;
     const W = c.width, D = c.depth[index], thal = c.thalweg[index], curv = c.curvature[index];

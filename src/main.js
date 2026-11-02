@@ -24,6 +24,9 @@ function supported() {
   return !!probe.getContext('webgl2');
 }
 
+// True once a river is mostly braided: meander-only overlays switch off.
+const braided = (snap) => !!snap?.braid && snap.braid.amount >= 0.5;
+
 async function start() {
   const settings = decodeSettings(location.hash, defaults);
   const fromLink = location.hash.length > 1;
@@ -76,7 +79,7 @@ async function start() {
     if (snap.grid.bedrock) terrain.setBedrock(snap.grid.bedrock);
     refreshTerrain(first);
     water.update(snap, settings.exaggeration, settings.waterOpacity, floodVisual);
-    trails.update(snap, settings.exaggeration, settings.showTrails, settings.showThalweg);
+    trails.update(snap, settings.exaggeration, settings.showTrails, settings.showThalweg && !braided(snap));
     particles.setSnapshot(snap, quality().particles);
     section.refresh(snap);
     hudYear.textContent = `Year ${Math.floor(snap.year).toLocaleString()}`;
@@ -146,7 +149,7 @@ async function start() {
       else if (snapshot) {
         refreshTerrain(true);
         water.update(snapshot, settings.exaggeration, settings.waterOpacity, floodVisual);
-        trails.update(snapshot, settings.exaggeration, settings.showTrails, settings.showThalweg);
+        trails.update(snapshot, settings.exaggeration, settings.showTrails, settings.showThalweg && !braided(snapshot));
       }
     },
     applyPreset(name) {
@@ -300,7 +303,7 @@ async function start() {
         hudFlood.textContent = floodVisual > 0.02 ? 'Flood' : '';
       }
     }
-    particles.update(dt, settings.exaggeration, settings.showParticles);
+    particles.update(dt, settings.exaggeration, settings.showParticles && !braided(snapshot));
     effects.update(dt);
     labels.update(snapshot, view.camera, settings.exaggeration, settings.showLabels, groundHeight, settings.showParticles);
     if (section.open) section.draw(dt);

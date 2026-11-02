@@ -22,6 +22,7 @@ export const defaults = {
   valleySlope: 0.0005,     // fall per metre down the valley (0.0005 = 50 cm per km)
   incisionRate: 0,         // metres per 1000 years the river cuts down (0 = none; leaves terraces when on)
   sedimentSupply: 1,       // how quickly bars and levees build (1 = normal)
+  pattern: 'meandering',   // 'meandering' | 'braided' | 'auto' (auto picks from slope, flow and sediment)
 
   // --- Banks ---
   erodibility: 1,          // bank erodibility multiplier (1 = soft lowland soil)
@@ -75,7 +76,7 @@ export const RANGES = {
   floodSize: [1.2, 8, 0.1],
   channelWidth: [20, 150, 1],
   channelDepth: [1, 8, 0.1],
-  valleySlope: [0.0001, 0.002, 0.00005],
+  valleySlope: [0.0001, 0.01, 0.00005],
   incisionRate: [0, 20, 0.5],
   sedimentSupply: [0.2, 3, 0.1],
   erodibility: [0.1, 3, 0.05],
@@ -101,6 +102,7 @@ export const RANGES = {
 export const CHOICES = {
   startShape: ['wiggle', 'straight', 'sine'],
   quality: ['low', 'medium', 'high'],
+  pattern: ['meandering', 'braided', 'auto'],
 };
 
 // --- Valley geometry ---
@@ -153,7 +155,7 @@ export const QUALITY = {
   high:   { cols: 1024, rows: 512, shadowMap: 4096, trees: 16000, grass: 32000, particles: 5000 }, // 5.9 m cells, ~8 per channel width
 };
 
-export const SURFACE = { GRASS: 0, SAND: 1, EARTH: 2, WETLAND: 3, ROCK: 4, WATER: 5, MARSH: 6 };
+export const SURFACE = { GRASS: 0, SAND: 1, EARTH: 2, WETLAND: 3, ROCK: 4, WATER: 5, MARSH: 6, GRAVEL: 7 };
 
 export const FLOODPLAIN = {
   baseNoise: 0.4,          // metres of gentle random relief on the initial floodplain
@@ -186,6 +188,30 @@ export const FLOODPLAIN = {
   scarpSlope: 0.6,         // steepest stable slope (rise over run, about 31 degrees) of a terrace scarp in alluvium
   rockScarpFactor: 1.8,    // bedrock walls stand this many times steeper (more and they read as one-cell cliffs)
   scarpPasses: 2,          // slumping passes per land update while the river is cutting down
+};
+
+// --- Braided rivers ---
+export const BRAID = {
+  autoThreshold: 0.03,     // 'auto' braids when slope x sqrt(mean discharge) x sediment supply is above this
+  autoHysteresis: 0.15,    // ... with this fraction of slack either side, so it does not flicker
+  rampYears: 30,           // years for the threads to spread out (or close up) when the pattern changes
+  beltWidths: 4,           // half-width of the braidplain in channel widths, times sqrt(sediment supply)
+  threadsMin: 3,           // number of threads: 2 + 1.5 x sediment supply, clamped to these
+  threadsMax: 6,
+  threadWidthFraction: 0.45, // each thread's width as a fraction of the channel width
+  threadDepthFraction: 0.55, // each thread's depth as a fraction of the channel depth
+  wavelengthWidths: 9,     // along-river length scale of the threads' wandering, in channel widths
+  shiftYears: 25,          // years for the threads to wander about one wavelength's worth
+  floodShift: 4,           // threads move this many times faster at a flood peak
+  spread: 0.55,            // how evenly the threads are spread across the belt (0 = all wander freely)
+  widthVariation: 0.6,     // threads range from (1 - this) to (1 + this) times the mean thread width, drifting over time
+  taperFraction: 0.08,     // fraction of the river at each end over which the threads converge
+  migrationFactor: 0.2,    // the braidplain axis migrates at this fraction of the meandering rate
+  barLow: 0.15,            // metres above water of bar edges next to a thread
+  barHigh: 0.75,           // metres above water of bar tops furthest from the threads
+  barRiseWidths: 1.5,      // channel widths over which a bar rises from its edge to its top
+  planeRate: 0.05,         // m/yr older, higher ground inside the belt is planed down to bar level
+  vegScour: 0.5,           // fraction of braidplain vegetation a flood-year strips
 };
 
 // --- Thalweg and pools (channel cross-section shape) ---
@@ -225,6 +251,7 @@ export const RENDER = {
     4: 0x6e6a66,           // ROCK
     5: 0x2b4f5a,           // WATER (channel and lake bed, seen through the water)
     6: 0x6f8a4a,           // MARSH
+    7: 0xa49b89,           // GRAVEL (braid bars)
   },
   treeColour: 0x2f5d2a,
   trunkColour: 0x5a4030,
@@ -271,6 +298,11 @@ export const PRESETS = {
     channelWidth: 45, channelDepth: 2.5, meanDischarge: 90, valleySlope: 0.001, incisionRate: 4,
     erodibility: 1.5, bankHeight: 3.5, patchiness: 0.5, vegGrowth: 0.8, rootStrength: 0.5, floodFrequency: 5,
   },
+  'Braided gravel river': {
+    pattern: 'braided', channelWidth: 40, channelDepth: 1.5, meanDischarge: 150, valleySlope: 0.004,
+    sedimentSupply: 2.5, erodibility: 2, bankHeight: 2.5, patchiness: 0.3, vegGrowth: 0.6, rootStrength: 0.3,
+    floodFrequency: 10,
+  },
   'Fast-migrating sandy river': {
     channelWidth: 70, channelDepth: 2.5, meanDischarge: 150, valleySlope: 0.0007,
     erodibility: 1.8, bankHeight: 3, patchiness: 0.3, vegGrowth: 0.5, rootStrength: 0.3,
@@ -298,7 +330,8 @@ export const HELP = {
   incisionRate: 'How fast the river cuts down, in metres per 1000 years. The old floodplain is left standing as terraces',
   dropBase: 'Lower the base level by 2 m now, as if the sea or the trunk river fell. A step (knickpoint) forms at the outlet and works its way upstream, leaving a terrace behind it',
   alluviumDepth: 'Depth of soft river sediment over bedrock. A river that cuts deeper than this meets rock, which erodes more slowly and shows in the terrace walls',
-  sedimentSupply: 'How quickly point bars and levees build',
+  sedimentSupply: 'How quickly point bars and levees build. Lots of sediment on a steep valley makes a river braid',
+  pattern: 'Meandering: one winding channel. Braided: many shallow threads splitting and rejoining across a wide gravel bed. Auto: braids when the valley is steep, the flow strong and the sediment plentiful',
   erodibility: 'How easily banks erode. 1 is soft lowland soil',
   bankHeight: 'Height of the floodplain above the channel bed in metres',
   patchiness: 'How varied the ground is. Patchy ground makes irregular bends',
@@ -383,6 +416,14 @@ export const EXPLANATIONS = {
   terrace: {
     title: 'River terrace',
     text: 'The old floodplain, left high and dry when the river cut down to a lower level. Its tall edge erodes slowly, so it hems the river in.',
+  },
+  braidbar: {
+    title: 'Braid bar',
+    text: 'A gravel island between the threads of a braided river. The river carries more gravel than it can move, drops it in bars, and splits around them.',
+  },
+  braidchannel: {
+    title: 'Braided channel',
+    text: 'One of many shallow threads that split and rejoin across the gravel. Floods shift them about, so the pattern is never the same twice.',
   },
   flood: {
     title: 'Flood',

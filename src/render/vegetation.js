@@ -124,14 +124,14 @@ export function createVegetation(maxTrees, maxGrass) {
           trees.setColorAt(t, colour);
           t++;
         }
-      } else if (gr < grassCap && v > 0.15 && v < 0.75 && hash(i, 8) < grassProb * (s === SURFACE.SAND ? 0.6 : 0.3)) {
+      } else if (gr < grassCap && v > 0.15 && v < 0.75 && hash(i, 8) < grassProb * (s === SURFACE.SAND || s === SURFACE.GRAVEL ? 0.6 : 0.3)) {
         const sc = 0.8 + hash(i, 9) * 0.8;
         dummy.position.set(wx, wy, wz);
         dummy.scale.set(sc, sc, sc);
         dummy.rotation.set(0, hash(i, 10) * 6.28, 0);
         dummy.updateMatrix();
         grass.setMatrixAt(gr, dummy.matrix);
-        colour.copy(tuftGreen).lerp(tuftSand, s === SURFACE.SAND ? 0.6 + hash(i, 13) * 0.3 : hash(i, 13) * 0.25);
+        colour.copy(tuftGreen).lerp(tuftSand, s === SURFACE.SAND || s === SURFACE.GRAVEL ? 0.6 + hash(i, 13) * 0.3 : hash(i, 13) * 0.25);
         grass.setColorAt(gr, colour);
         gr++;
       }

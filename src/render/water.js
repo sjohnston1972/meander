@@ -52,6 +52,7 @@ function makeRibbon(material) {
 }
 
 // Write one polyline as a ribbon into `mesh` starting at point offset `start`.
+// `width` is a number, or an array with a width per point (braid threads).
 // colourFn(i, u01) fills tmp with the colour for point i at cross position u01 (0..1).
 // Returns the next free point index.
 function writeRibbon(mesh, start, x, y, level, width, exaggeration, colourFn, arcOffset = 0, lift = 0, capacity = MAX_POINTS) {
@@ -61,7 +62,9 @@ function writeRibbon(mesh, start, x, y, level, width, exaggeration, colourFn, ar
   const col = mesh.geometry.attributes.color.array;
   const uv = mesh.geometry.attributes.uv.array;
   const idx = mesh.geometry.index.array;
-  const hw = width * (0.5 + EDGE_OVERLAP);
+  const perPoint = typeof width !== 'number';
+  const uvWidth = perPoint ? Math.max(1, width.reduce((a, b) => Math.max(a, b), 0)) : width;
+  let hw = perPoint ? 0 : width * (0.5 + EDGE_OVERLAP);
   let s = arcOffset;
   for (let i = 0; i < n; i++) {
     const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
@@ -70,6 +73,7 @@ function writeRibbon(mesh, start, x, y, level, width, exaggeration, colourFn, ar
     const nx = ty / l, ny = -tx / l; // right-hand normal
     if (i > 0) s += Math.hypot(x[i] - x[i - 1], y[i] - y[i - 1]);
     const wy = level[i] * exaggeration + lift;
+    if (perPoint) hw = width[i] * (0.5 + EDGE_OVERLAP);
     for (let a = 0; a < ACROSS; a++) {
       const u01 = a / (ACROSS - 1);
       const u = (u01 * 2 - 1) * hw;
@@ -79,7 +83,7 @@ function writeRibbon(mesh, start, x, y, level, width, exaggeration, colourFn, ar
       pos[v * 3 + 2] = y[i] + ny * u - VALLEY.width / 2;
       colourFn(i, u01);
       col[v * 3] = tmp.r; col[v * 3 + 1] = tmp.g; col[v * 3 + 2] = tmp.b;
-      uv[v * 2] = s / (width * 2);
+      uv[v * 2] = s / (uvWidth * 2);
       uv[v * 2 + 1] = u01 * 1.2;
     }
   }
@@ -91,6 +95,10 @@ function writeRibbon(mesh, start, x, y, level, width, exaggeration, colourFn, ar
       idx[k + 3] = p + 1; idx[k + 4] = q; idx[k + 5] = q + 1;
     }
   }
+  // The segment after this polyline's last point would join it to the next
+  // polyline in the same mesh: make it degenerate.
+  const k0 = (start + n - 1) * (ACROSS - 1) * 6;
+  if (k0 + (ACROSS - 1) * 6 <= idx.length) idx.fill(0, k0, k0 + (ACROSS - 1) * 6);
   return start + n;
 }
 
@@ -128,6 +136,10 @@ export function createWater() {
 
   const river = makeRibbon(riverMaterial);
   river.renderOrder = 2;
+  // All the threads of a braided reach share one ribbon mesh.
+  const threads = makeRibbon(riverMaterial);
+  threads.renderOrder = 2;
+  threads.visible = false;
   const lakes = new Map();
 
   // A fixed ribbon for one oxbow loop, with its own material for tinting.
@@ -164,7 +176,7 @@ export function createWater() {
   for (let i = 0; i < fuv.length; i += 2) { fuv[i] *= 60; fuv[i + 1] *= 30; }
 
   const group = new THREE.Group();
-  group.add(river, flood);
+  group.add(river, threads, flood);
 
   // Per-point cross-section for the cross-section panel and picking.
   let lastSnapshot = null;
@@ -204,8 +216,32 @@ export function createWater() {
       if (foam[i] > 0) tmp.lerp(foamColour, foam[i] * (0.55 + 0.25 * Math.sin(u01 * 9 + i)));
       tmp.lerp(floodColour, f * 0.85);
     };
-    const used = writeRibbon(river, 0, c.x, c.y, c.level, W * (1 + f * 0.3), exaggeration, colourFn, 0, 0.06 + floodLift);
-    finishRibbon(river, used, Math.max(0, used - 1));
+    // A braided reach narrows the single channel away as its threads spread.
+    const braid = snapshot.braid;
+    const mainW = W * (1 + f * 0.3) * (braid ? 1 - braid.amount : 1);
+    if (mainW > 1) {
+      const used = writeRibbon(river, 0, c.x, c.y, c.level, mainW, exaggeration, colourFn, 0, 0.06 + floodLift);
+      finishRibbon(river, used, Math.max(0, used - 1));
+    } else {
+      river.visible = false;
+    }
+    if (braid) {
+      // Shallow threads: light riffle colour, a little deeper down the middle.
+      const threadColour = (i, u01) => {
+        const side = u01 * 2 - 1;
+        tmp.copy(riffleColour).lerp(poolColour, 0.3 * (1 - side * side));
+        if (u01 === 0 || u01 === 1) tmp.lerp(rimColour, 0.45);
+        if (foam[i] > 0) tmp.lerp(foamColour, foam[i] * 0.6);
+        tmp.lerp(floodColour, f * 0.85);
+      };
+      let start = 0;
+      for (const t of braid.threads) {
+        start = writeRibbon(threads, start, t.x, t.y, c.level, t.width, exaggeration, threadColour, 0, 0.06 + floodLift);
+      }
+      finishRibbon(threads, start, Math.max(0, start - 1));
+    } else {
+      threads.visible = false;
+    }
     riverMaterial.opacity = opacity;
 
     // Oxbows never change shape, so each lake ribbon is built once (keyed by
@@ -268,7 +304,8 @@ export function createWater() {
       const d = (c.x[i] - ex) ** 2 + (c.y[i] - ey) ** 2;
       if (d < bestD) { bestD = d; best = i; }
     }
-    return Math.sqrt(bestD) < c.width * 1.5 ? best : -1;
+    const reach = lastSnapshot.braid ? lastSnapshot.braid.half + c.width : c.width * 1.5;
+    return Math.sqrt(bestD) < reach ? best : -1;
   }
 
   return { group, river, flood, update, animate, nearestIndex, get lakeCount() { return lakes.size; } };

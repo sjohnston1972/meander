@@ -1,17 +1,17 @@
 // The simulation engine. Owns the river centreline, the oxbows and the
 // floodplain grid, advances them one fixed time step per tick(), and hands out
 // snapshots for the renderer. Pure JavaScript; never touches three.js.
-import { VALLEY, DT, CENTRELINE, FLOODS, FLOODPLAIN, THALWEG, RENDER, SURFACE } from '../config.js';
+import { VALLEY, DT, CENTRELINE, FLOODS, FLOODPLAIN, THALWEG, RENDER, SURFACE, BRAID } from '../config.js';
 
 const RENDER_FEATURE_TICKS = RENDER.featureEveryTicks;
-import { createRandom } from './random.js';
+import { createRandom, createNoise2D } from './random.js';
 import { SAVE_VERSION } from './savefile.js';
 import {
   curvature, resample, smooth, initialCentreline, arcLength,
   migrationRate, migrate, findNeckCutoff, spliceCutoff, findChuteCutoff,
 } from './centreline.js';
 import {
-  createGrid, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth, cellIndex, setAlluvium, relaxSlopes,
+  createGrid, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth, cellIndex, setAlluvium, relaxSlopes, stampBraided,
 } from './floodplain.js';
 
 export class Engine {
@@ -39,6 +39,10 @@ export class Engine {
     this.incision = 0;          // metres the whole water profile has cut down
     this.knickpoints = [];      // [{ pos: metres upstream of the outlet, drop: metres }]
     this.sentBedrockVersion = -1;
+    this.braid = 0;             // 0 = one meandering channel, 1 = fully braided
+    this.braidTime = 0;         // noise time that moves the braid threads about
+    this.braidNoise = createNoise2D(this.settings.seed * 48271 + 5);
+    this.threads = null;        // { offsets[k][i], width, half } while braided
     this.rate = new Float64Array(x.length);
     this.curv = new Float64Array(x.length);
     this.level = new Float64Array(x.length);
@@ -68,6 +72,7 @@ export class Engine {
       flood: this.flood, floodRemaining: this.floodRemaining, floodPending: this.floodPending,
       discharge: this.discharge, yearDischargeAt: this.yearDischargeAt,
       incision: this.incision, knickpoints: this.knickpoints.map((k) => ({ ...k })),
+      braid: this.braid, braidTime: this.braidTime,
       landDt: this.landDt,
       grid: {
         cols: g.cols, rows: g.rows, cell: g.cell, slope: g.slope, bankHeight: g.bankHeight,
@@ -97,6 +102,10 @@ export class Engine {
     this.incision = st.incision;
     this.knickpoints = (st.knickpoints || []).map((k) => ({ pos: +k.pos || 0, drop: +k.drop || 0 }));
     this.sentBedrockVersion = -1;
+    this.braid = st.braid ?? 0;
+    this.braidTime = st.braidTime ?? 0;
+    this.braidNoise = createNoise2D(this.settings.seed * 48271 + 5);
+    this.threads = null;
     this.landDt = st.landDt;
     const g = st.grid;
     const n = g.cols * g.rows;
@@ -110,6 +119,7 @@ export class Engine {
       stamp: new Uint32Array(n), stampId: 1,
     };
     this.events = [];
+    if (this.braid > 0) this.computeThreads();
     this.features = this.findFeatures();
   }
 
@@ -145,6 +155,66 @@ export class Engine {
   static helpers = { sampleErodibility, effectiveDepth, bankFactor: Engine.bankFactor };
 
   get depth() { return effectiveDepth(this.settings); }
+
+  // How strongly a river wants to braid: steep, strong and loaded with sediment.
+  static braidingIndex(s) { return s.valleySlope * Math.sqrt(s.meanDischarge) * s.sedimentSupply; }
+  static threadCount(s) { return Math.max(BRAID.threadsMin, Math.min(BRAID.threadsMax, Math.round(2 + 1.5 * s.sedimentSupply))); }
+  static beltHalfWidth(s) { return BRAID.beltWidths * s.channelWidth * Math.sqrt(s.sedimentSupply); }
+
+  // Move the braid amount towards what the pattern setting asks for.
+  updatePattern() {
+    const s = this.settings;
+    let want = s.pattern === 'braided';
+    if (s.pattern === 'auto') {
+      const t = BRAID.autoThreshold;
+      want = Engine.braidingIndex(s) > t * (this.braid > 0 ? 1 - BRAID.autoHysteresis : 1 + BRAID.autoHysteresis);
+    }
+    if (!want && this.braid === 0) return;
+    const step = DT / BRAID.rampYears;
+    this.braid = want ? Math.min(1, this.braid + step) : Math.max(0, this.braid - step);
+    this.braidTime += (DT * (1 + BRAID.floodShift * this.flood)) / BRAID.shiftYears;
+  }
+
+  // Thread offsets from the axis: spread evenly across the belt, wandering
+  // with smooth noise in distance and time, converging at both ends.
+  computeThreads() {
+    const s = this.settings;
+    const W = s.channelWidth;
+    const n = this.x.length;
+    const arc = arcLength(this.x, this.y);
+    const total = arc[n - 1] || 1;
+    const N = Engine.threadCount(s);
+    const width = W * (1 - this.braid * (1 - BRAID.threadWidthFraction));
+    const half = Engine.beltHalfWidth(s) * this.braid;
+    const amp = Math.max(0, half - width / 2);
+    const taper = BRAID.taperFraction * total;
+    const wave = BRAID.wavelengthWidths * W;
+    const c = curvature(this.x, this.y);
+    const offsets = [];
+    for (let k = 0; k < N; k++) offsets.push(new Float64Array(n));
+    // Each thread carries its own share of the flow, which drifts: a main
+    // thread now, a trickle later.
+    const widths = new Float64Array(N);
+    for (let k = 0; k < N; k++) {
+      const drift = 2 * this.braidNoise(k * 31.7 + 500, this.braidTime * 0.5) - 1;
+      widths[k] = width * Math.max(0.3, 1 + BRAID.widthVariation * this.braid * Math.max(-1, Math.min(1, drift * 1.6)));
+    }
+    for (let i = 0; i < n; i++) {
+      let tp = Math.min(1, arc[i] / taper, (total - arc[i]) / taper);
+      tp = tp * tp * (3 - 2 * tp);
+      const fold = Math.abs(c[i]) > 1e-9 ? 0.7 / Math.abs(c[i]) : Infinity; // never past the bend's centre
+      for (let k = 0; k < N; k++) {
+        const lane = N > 1 ? -1 + (2 * k) / (N - 1) : 0;
+        const wander = (2 * this.braidNoise(arc[i] / wave + k * 17.3, this.braidTime + k * 7.1) - 1) * 1.6;
+        let v = BRAID.spread * lane + (1 - BRAID.spread) * 2 * wander;
+        if (v > 1) v = 1; else if (v < -1) v = -1;
+        let o = amp * tp * v;
+        if (o > fold) o = fold; else if (o < -fold) o = -fold;
+        offsets[k][i] = o;
+      }
+    }
+    this.threads = { offsets, width, widths, half };
+  }
 
   triggerFlood() { this.floodPending = true; }
 
@@ -271,6 +341,7 @@ export class Engine {
     const ds = this.ds;
     this.updateDischarge();
     this.updateIncision();
+    this.updatePattern();
 
     // 1. Curvature.
     const c = curvature(this.x, this.y);
@@ -281,7 +352,8 @@ export class Engine {
     const n = this.x.length;
     const q = this.flood > 0 ? s.meanDischarge * (1 + (s.floodSize - 1) * this.flood) : this.discharge;
     const qFactor = Math.pow(q / s.meanDischarge, CENTRELINE.dischargeExponent);
-    const base = s.erodibility * CENTRELINE.migrationScale * qFactor;
+    let base = s.erodibility * CENTRELINE.migrationScale * qFactor;
+    if (this.braid > 0) base *= 1 - (1 - BRAID.migrationFactor) * this.braid; // the braidplain axis wanders slowly
     const k = new Float64Array(n);
     const prot = CENTRELINE.endProtection;
     for (let i = prot; i < n - prot; i++) k[i] = base * this.localErodibility(i);
@@ -302,14 +374,14 @@ export class Engine {
     this.clampToValley();
     ({ x: this.x, y: this.y } = resample(this.x, this.y, ds));
 
-    // 4. Cutoffs.
+    // 4. Cutoffs (a braided river has no meander loops to cut off).
     const minSep = Math.round((CENTRELINE.minSeparationWidths * W) / ds);
-    for (let guard = 0; guard < 3; guard++) {
+    for (let guard = 0; guard < 3 && this.braid < 0.5; guard++) {
       const hit = findNeckCutoff(this.x, this.y, minSep, s.cutoffDistance * W, prot);
       if (!hit) break;
       this.cutoff(hit.i, hit.j, 'neck');
     }
-    if (this.flood > 0) {
+    if (this.flood > 0 && this.braid < 0.5) {
       const c2 = curvature(this.x, this.y);
       const hit = findChuteCutoff(this.x, this.y, c2, this.rng, s.chuteChance * DT, ds, W, prot);
       if (hit) this.cutoff(hit.i, hit.j, 'chute');
@@ -317,6 +389,7 @@ export class Engine {
 
     // 5. Floodplain: carve the channel, age oxbows, grow land.
     this.computeLevels();
+    if (this.braid > 0) this.computeThreads(); else this.threads = null;
     this.stamp();
     this.ageOxbows();
     this.landDt += DT;
@@ -349,7 +422,8 @@ export class Engine {
       level: this.level,
       dt: DT,
     };
-    stampChannel(this.grid, river, this.settings, this.year, this.flood);
+    if (this.threads) stampBraided(this.grid, river, this.threads, this.settings, this.flood);
+    else stampChannel(this.grid, river, this.settings, this.year, this.flood);
   }
 
   // Undercut banks occasionally fail: a chunk falls in, plants are stripped.
@@ -448,8 +522,10 @@ export class Engine {
     };
     const minCurv = 0.35 / W;
     const prot = CENTRELINE.endProtection;
+    const braided = this.braid >= 0.5 && this.threads;
+    if (braided) this.braidFeatures(out, prot);
     let lastApex = -100, apexCount = 0, lastInflection = -100;
-    for (let i = prot + 1; i < n - prot - 1; i++) {
+    for (let i = prot + 1; i < (braided ? 0 : n - prot - 1); i++) {
       const a = Math.abs(c[i]);
       if (a > minCurv && a >= Math.abs(c[i - 1]) && a > Math.abs(c[i + 1]) && i - lastApex > 8) {
         lastApex = i;
@@ -472,7 +548,7 @@ export class Engine {
     }
     // Meander necks: reaches close to joining.
     const minSep = Math.round((CENTRELINE.minSeparationWidths * W) / this.ds);
-    const neck = findNeckCutoff(this.x, this.y, minSep, 2.5 * W, prot);
+    const neck = braided ? null : findNeckCutoff(this.x, this.y, minSep, 2.5 * W, prot);
     if (neck) out.push({ type: 'neck', x: (this.x[neck.i] + this.x[neck.j]) / 2, y: (this.y[neck.i] + this.y[neck.j]) / 2 });
     // Oxbows: label at the point of the loop furthest from its chord.
     for (const o of this.oxbows) {
@@ -486,7 +562,7 @@ export class Engine {
     }
     // Levees: banks that stand above the floodplain after floods.
     let levees = 0, lastLevee = -100;
-    for (let i = prot; i < n - prot && levees < 3; i += 6) {
+    for (let i = prot; i < (braided ? 0 : n - prot) && levees < 3; i += 6) {
       if (i - lastLevee < 50) continue;
       const [nx, ny] = normal(i);
       for (const side of [1, -1]) {
@@ -528,6 +604,75 @@ export class Engine {
     }
     if (this.flood > 0) out.push({ type: 'flood', x: this.x[Math.floor(n / 2)], y: this.y[Math.floor(n / 2)], level: this.level[Math.floor(n / 2)] + 1 });
     return out;
+  }
+
+  // Explain-mode features of a braided reach: the widest bars between
+  // neighbouring threads, and a few of the threads themselves.
+  braidFeatures(out, prot) {
+    const { offsets, width } = this.threads;
+    const n = this.x.length;
+    const N = offsets.length;
+    let bars = 0, chans = 0, step = 0;
+    for (let i = prot + 10; i < n - prot - 10 && bars < 4; i += 30, step++) {
+      const o = offsets.map((a) => a[i]).sort((a, b) => a - b);
+      let gap = 0, mid = 0;
+      for (let k = 1; k < N; k++) if (o[k] - o[k - 1] > gap) { gap = o[k] - o[k - 1]; mid = (o[k] + o[k - 1]) / 2; }
+      const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
+      const tx = this.x[i1] - this.x[i0], ty = this.y[i1] - this.y[i0];
+      const l = Math.hypot(tx, ty) || 1;
+      const nx = ty / l, ny = -tx / l;
+      if (gap > width * 2.5) {
+        out.push({ type: 'braidbar', x: this.x[i] + nx * mid, y: this.y[i] + ny * mid });
+        bars++;
+      }
+      if (chans < 3 && step % 2 === 1) {
+        const ok = offsets[step % N][i];
+        out.push({ type: 'braidchannel', x: this.x[i] + nx * ok, y: this.y[i] + ny * ok, level: this.level[i] });
+        chans++;
+      }
+    }
+  }
+
+  // Thread polylines for the renderer. A thread that runs inside another
+  // (closer than about a width) narrows to nothing there, so merged threads
+  // are drawn once.
+  braidSnapshot() {
+    const { offsets, width, widths } = this.threads;
+    const n = this.x.length;
+    const threads = offsets.map(() => ({ x: new Float32Array(n), y: new Float32Array(n), width: new Float32Array(n) }));
+    for (let i = 0; i < n; i++) {
+      const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
+      const tx = this.x[i1] - this.x[i0], ty = this.y[i1] - this.y[i0];
+      const l = Math.hypot(tx, ty) || 1;
+      const nx = ty / l, ny = -tx / l;
+      for (let k = 0; k < offsets.length; k++) {
+        const o = offsets[k][i];
+        const t = threads[k];
+        t.x[i] = this.x[i] + nx * o;
+        t.y[i] = Math.min(VALLEY.width, Math.max(0, this.y[i] + ny * o));
+        // Hidden where it runs inside a wider thread drawn before it.
+        let f = 1;
+        for (let j = 0; j < k; j++) {
+          const room = Math.abs(o - offsets[j][i]) + widths[k] / 2 - widths[j] / 2; // how far it pokes out
+          f = Math.min(f, Math.max(0, room / (0.4 * widths[k])));
+        }
+        t.width[i] = widths[k] * Math.min(1, f);
+      }
+    }
+    // Smooth each thread's drawn width along its length, so a thread brushing
+    // past another fades out and back in rather than flickering to dashes.
+    const tmp = new Float32Array(n);
+    for (const t of threads) {
+      for (let pass = 0; pass < 2; pass++) {
+        for (let i = 0; i < n; i++) {
+          let sum = 0, cnt = 0;
+          for (let j = Math.max(0, i - 3); j <= Math.min(n - 1, i + 3); j++) { sum += t.width[j]; cnt++; }
+          tmp[i] = sum / cnt;
+        }
+        t.width.set(tmp);
+      }
+    }
+    return { amount: this.braid, half: this.threads.half, threadWidth: width, threads };
   }
 
   // History trails for the configured ages.
@@ -572,6 +717,7 @@ export class Engine {
       events: this.events,
       trails: this.trails(),
       features: this.features,
+      braid: this.threads ? this.braidSnapshot() : null,
       grid: {
         cols: g.cols, rows: g.rows, cell: g.cell,
         height: Float32Array.from(g.height),
