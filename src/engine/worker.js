@@ -29,6 +29,7 @@ function sendSnapshot() {
     c.x.buffer, c.y.buffer, c.curvature.buffer, c.rate.buffer, c.level.buffer, c.depth.buffer, c.thalweg.buffer,
     g.height.buffer, g.surface.buffer, g.veg.buffer,
   ];
+  if (g.bedrock) transfer.push(g.bedrock.buffer);
   postMessage({ type: 'snapshot', data: snap, generation }, transfer);
   lastSnapshot = performance.now();
   dirty = false;

@@ -73,6 +73,7 @@ async function start() {
   sim.onSnapshot((snap) => {
     const first = !snapshot;
     snapshot = snap;
+    if (snap.grid.bedrock) terrain.setBedrock(snap.grid.bedrock);
     refreshTerrain(first);
     water.update(snap, settings.exaggeration, settings.waterOpacity, floodVisual);
     trails.update(snap, settings.exaggeration, settings.showTrails, settings.showThalweg);

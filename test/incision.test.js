@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Engine } from '../src/engine/engine.js';
-import { defaults, DT, VALLEY, CENTRELINE } from '../src/config.js';
+import { defaults, DT, VALLEY, CENTRELINE, FLOODPLAIN } from '../src/config.js';
 import { cellIndex } from '../src/engine/floodplain.js';
 
 const LONG = 60000;
@@ -46,14 +46,42 @@ describe('vertical erosion', () => {
     expect(fresh / checked).toBeGreaterThan(0.5);
   });
 
-  it('a sudden base-level drop is cut down at a limited rate', () => {
+  it('a base-level drop lowers the outlet first and leaves the head of the river alone', () => {
+    const e = new Engine(fast);
+    const n0 = e.x.length;
+    const outletBefore = e.level[n0 - 3], headBefore = e.level[3];
+    e.dropBaseLevel(2);
+    run(e, 4);
+    const n = e.x.length;
+    expect(outletBefore - e.level[n - 3]).toBeGreaterThan(1.5);
+    expect(Math.abs(headBefore - e.level[3])).toBeLessThan(0.2);
+    expect(e.knickpoints.length).toBe(1);
+  });
+
+  it('the knickpoint travels upstream at its celerity', { timeout: LONG }, () => {
     const e = new Engine(fast);
     e.dropBaseLevel(2);
-    e.tick();
-    expect(e.incision).toBeGreaterThan(0);
-    expect(e.incision).toBeLessThan(2);
-    run(e, 400);
+    run(e, 200 / DT);
+    const pos = e.knickpoints[0].pos;
+    expect(pos).toBeGreaterThan(CENTRELINE.knickCelerity * 200 * 0.7);
+    expect(pos).toBeLessThan(CENTRELINE.knickCelerity * 200 * 1.3);
+    expect(e.findFeatures().some((f) => f.type === 'knickpoint')).toBe(true);
+  });
+
+  it('once the knickpoint reaches the head the whole river has cut down', { timeout: LONG }, () => {
+    const e = new Engine(fast);
+    e.dropBaseLevel(2);
+    for (let i = 0; i < 4000 / DT && e.knickpoints.length; i++) e.tick();
+    expect(e.knickpoints.length).toBe(0);
     expect(e.incision).toBeCloseTo(2, 6);
+  });
+
+  it('knickpoints survive a save and restore', () => {
+    const e = new Engine(fast);
+    e.dropBaseLevel(2);
+    run(e, 40);
+    const c = Engine.fromState(structuredClone(e.serialize()));
+    expect(c.knickpoints).toEqual(e.knickpoints);
   });
 
   it('tall banks erode more slowly', () => {
@@ -61,10 +89,12 @@ describe('vertical erosion', () => {
     expect(bankFactor(4, 4)).toBe(1);
     expect(bankFactor(2, 4)).toBe(1);
     expect(bankFactor(5.5, 4)).toBe(1); // a levee on top of the bank does not count
-    // Gentle: retreat slows with the square root of the extra height, so a
-    // terrace edge slows the river without freezing it in a slot.
-    expect(bankFactor(8, 4)).toBeCloseTo(Math.sqrt(4 / 6.5), 6);
-    expect(bankFactor(80, 4)).toBe(CENTRELINE.minBankFactor);
+    // Gentle: retreat slows with a low power of the extra height, so a
+    // terrace edge slows the river without freezing or straightening it.
+    expect(bankFactor(8, 4)).toBeCloseTo(Math.pow(4 / 6.5, CENTRELINE.bankHeightExponent), 6);
+    expect(CENTRELINE.bankHeightExponent).toBeLessThanOrEqual(0.25);
+    expect(bankFactor(80, 4)).toBeGreaterThanOrEqual(CENTRELINE.minBankFactor);
+    expect(bankFactor(80, 4)).toBeLessThan(bankFactor(8, 4));
     expect(CENTRELINE.minBankFactor).toBeGreaterThanOrEqual(0.4);
   });
 
@@ -104,5 +134,68 @@ describe('vertical erosion', () => {
     run(e, 1200 / DT);
     const types = new Set(e.findFeatures().map((f) => f.type));
     expect(types.has('terrace')).toBe(true);
+  });
+});
+
+describe('terrace scarps', () => {
+  it('slump to a stable slope instead of standing as one-cell cliffs', { timeout: LONG }, () => {
+    const e = new Engine({ ...fast, incisionRate: 10, alluviumDepth: 40 }); // no rock in reach
+    run(e, 1500 / DT);
+    const g = e.grid;
+    const limit = g.cell * FLOODPLAIN.scarpSlope;
+    let worst = 0;
+    for (let cy = 0; cy < g.rows; cy++) for (let cx = 0; cx < g.cols - 1; cx++) {
+      const i = cy * g.cols + cx, j = i + 1;
+      if (g.channel[i] || g.channel[j]) continue;
+      worst = Math.max(worst, Math.abs(g.height[i] - g.height[j]));
+    }
+    expect(worst).toBeLessThan(limit * 1.5);
+  });
+
+  it('stand steeper where they are cut in bedrock', { timeout: LONG }, () => {
+    const steepest = (alluviumDepth) => {
+      const e = new Engine({ ...fast, incisionRate: 20, alluviumDepth }); // 30 m down
+      run(e, 1500 / DT);
+      const g = e.grid;
+      let worst = 0;
+      for (let cy = 0; cy < g.rows; cy++) for (let cx = 0; cx < g.cols - 1; cx++) {
+        const i = cy * g.cols + cx, j = i + 1;
+        if (g.channel[i] || g.channel[j]) continue;
+        worst = Math.max(worst, Math.abs(g.height[i] - g.height[j]));
+      }
+      return worst;
+    };
+    expect(steepest(4)).toBeGreaterThan(steepest(40) * 1.2);
+  });
+});
+
+describe('bluffs beside an incising river', () => {
+  it('slump down to a stable slope above the river own floodplain', { timeout: LONG }, () => {
+    const e = new Engine({ ...fast, incisionRate: 10, alluviumDepth: 40 });
+    run(e, 1500 / DT); // ends on a land update, so the latest channel has been slumped against
+    const g = e.grid;
+    const D = e.depth, B = e.settings.bankHeight;
+    const soft = g.cell * FLOODPLAIN.scarpSlope;
+    let worst = -Infinity;
+    for (let i = 0; i < g.height.length; i++) {
+      if (g.channel[i] !== 1) continue;
+      for (const j of [i - 1, i + 1, i - g.cols, i + g.cols]) {
+        if (j < 0 || j >= g.height.length || g.channel[j]) continue;
+        worst = Math.max(worst, g.height[j] - (g.chanLevel[i] - D + B));
+      }
+    }
+    expect(worst).toBeLessThanOrEqual(soft + 1e-3);
+  });
+});
+
+describe('meandering under incision', () => {
+  it('a default river cutting at 6 m per 1000 years still develops bends', { timeout: LONG }, () => {
+    const e = new Engine({ ...defaults, quality: 'low', incisionRate: 6, alluviumDepth: 40 });
+    let best = 0;
+    for (let y = 0; y < 2000; y += 250) {
+      run(e, 250 / DT);
+      best = Math.max(best, e.x.length * e.ds / VALLEY.length);
+    }
+    expect(best).toBeGreaterThan(1.6);
   });
 });

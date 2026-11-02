@@ -3,7 +3,7 @@ import { Engine } from '../src/engine/engine.js';
 // node scripts/probe-incision-long.mjs [rate m/kyr] [years]
 import { defaults, DT, VALLEY } from '../src/config.js';
 const rate = Number(process.argv[2] ?? 4), years = Number(process.argv[3] ?? 6000);
-const e = new Engine({ ...defaults, incisionRate: rate, quality: 'low' });
+const e = new Engine({ ...defaults, incisionRate: rate, quality: 'low', ...(process.argv[4] ? { alluviumDepth: Number(process.argv[4]) } : {}) });
 const g = e.grid;
 for (let y = 0; y < years; y += 1000) {
   for (let t = 0; t < 1000 / DT; t++) e.tick();

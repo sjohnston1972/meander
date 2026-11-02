@@ -29,11 +29,14 @@ const GD = rgb(grassDry), GL = rgb(grassLush), GW = rgb(grassWet), GM = rgb(gras
 const SA = rgb(palette[SURFACE.SAND]), SW = rgb(sandWet);
 const PAL = {};
 for (const [k, c] of Object.entries(palette)) PAL[k] = rgb(c);
+const BR = rgb(new THREE.Color(RENDER.bedrockColour));
 
 export function createTerrain() {
   let cols = 0, rows = 0, cell = 0;
   let geometry = null, skirtGeometry = null;
-  let jitter = null, meadow = null, edge = null;
+  let jitter = null, meadow = null, edge = null, disp = null;
+  let adaptive = false; // quads split along their flatter diagonal (only while cutting)
+  let bedrock = null; // top of the bedrock per cell, sent only when it moves
   const edgeList = [];
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   const skirtMaterial = new THREE.MeshStandardMaterial({ color: 0x6b5a45, roughness: 1 });
@@ -51,6 +54,7 @@ export function createTerrain() {
     jitter = new Float32Array(n);
     meadow = new Float32Array(n);
     edge = new Float32Array(n * 3);
+    disp = new Float32Array(n);
     for (let cy = 0; cy < rows; cy++) for (let cx = 0; cx < cols; cx++) {
       const i = cy * cols + cx;
       meadow[i] = patchNoise(cx, cy, cols / 14) * 0.6 + patchNoise(cx, cy, cols / 60) * 0.4;
@@ -63,12 +67,8 @@ export function createTerrain() {
       jitter[i] = 0.92 + (h - Math.floor(h)) * 0.16;
     }
     const idx = new Uint32Array((cols - 1) * (rows - 1) * 6);
-    let k = 0;
-    for (let cy = 0; cy < rows - 1; cy++) for (let cx = 0; cx < cols - 1; cx++) {
-      const a = cy * cols + cx, b = a + 1, c = a + cols, d = c + 1;
-      idx[k++] = a; idx[k++] = c; idx[k++] = b;
-      idx[k++] = b; idx[k++] = c; idx[k++] = d;
-    }
+    splitQuads(idx, null);
+    adaptive = false;
     geometry?.dispose();
     geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -92,6 +92,23 @@ export function createTerrain() {
     skirtGeometry.setAttribute('position', new THREE.BufferAttribute(sp, 3));
     skirtGeometry.setIndex(new THREE.BufferAttribute(si, 1));
     skirt.geometry = skirtGeometry;
+  }
+
+  // Two triangles per grid quad. With `h`, each quad is split along the
+  // diagonal whose corners differ least in height, so a diagonal cliff is not
+  // drawn as saw teeth; without it, every quad splits the same way.
+  function splitQuads(idx, h) {
+    let k = 0;
+    for (let cy = 0; cy < rows - 1; cy++) for (let cx = 0; cx < cols - 1; cx++) {
+      const a = cy * cols + cx, b = a + 1, c = a + cols, d = c + 1;
+      if (h && Math.abs(h[a] - h[d]) < Math.abs(h[b] - h[c])) {
+        idx[k++] = a; idx[k++] = c; idx[k++] = d;
+        idx[k++] = a; idx[k++] = d; idx[k++] = b;
+      } else {
+        idx[k++] = a; idx[k++] = c; idx[k++] = b;
+        idx[k++] = b; idx[k++] = c; idx[k++] = d;
+      }
+    }
   }
 
   // Perimeter cell indices in order (top row, right column, bottom row reversed, left column reversed).
@@ -120,16 +137,42 @@ export function createTerrain() {
     const baseCol = new Float32Array(cols);
     const incision = st.incision || 0;
     for (let cx = 0; cx < cols; cx++) baseCol[cx] = st.valleySlope * (VALLEY.length - (cx + 0.5) * cell) + st.bankHeight - incision;
+    // Display heights: steep dry ground is softened a little, so grid-stepped
+    // terrace scarps read as slopes, not saw teeth. Only dry neighbours count,
+    // so a bank never sinks towards the riverbed under the water ribbon.
+    const W = SURFACE.WATER;
+    const steep = cell * 0.8;
+    const cutting = !!st.cutting; // only an incising river has tall scarps or exposed rock
+    let sum = 0, cnt = 0, lo = 0, hi = 0;
+    const take = (j) => {
+      if (surface[j] === W) return;
+      const hj = height[j];
+      sum += hj; cnt++;
+      if (hj < lo) lo = hj; else if (hj > hi) hi = hj;
+    };
+    if (!cutting) disp.set(height);
+    else for (let cy = 0; cy < rows; cy++) {
+      for (let cx = 0; cx < cols; cx++) {
+        const i = cy * cols + cx;
+        let h = height[i];
+        if (cx > 0 && cx < cols - 1 && cy > 0 && cy < rows - 1 && surface[i] !== W) {
+          sum = 0; cnt = 0; lo = h; hi = h;
+          take(i - 1); take(i + 1); take(i - cols); take(i + cols);
+          if (cnt > 0 && hi - lo > steep) h = 0.5 * h + 0.5 * (sum / cnt);
+        }
+        disp[i] = h;
+      }
+    }
     let minY = Infinity;
     for (let cy = 0; cy < rows; cy++) {
       const y0 = cy > 0 ? cy - 1 : cy, y1 = cy < rows - 1 ? cy + 1 : cy;
       for (let cx = 0; cx < cols; cx++) {
         const i = cy * cols + cx;
-        pos[i * 3 + 1] = height[i] * ex + waterLevelBias;
+        pos[i * 3 + 1] = disp[i] * ex + waterLevelBias;
         if (pos[i * 3 + 1] < minY) minY = pos[i * 3 + 1];
         const x0 = cx > 0 ? cx - 1 : cx, x1 = cx < cols - 1 ? cx + 1 : cx;
-        const dhx = (height[cy * cols + x1] - height[cy * cols + x0]) * inv * (x1 - x0 === 2 ? 1 : 2);
-        const dhz = (height[y1 * cols + cx] - height[y0 * cols + cx]) * inv * (y1 - y0 === 2 ? 1 : 2);
+        const dhx = (disp[cy * cols + x1] - disp[cy * cols + x0]) * inv * (x1 - x0 === 2 ? 1 : 2);
+        const dhz = (disp[y1 * cols + cx] - disp[y0 * cols + cx]) * inv * (y1 - y0 === 2 ? 1 : 2);
         const len = Math.sqrt(dhx * dhx + 1 + dhz * dhz);
         nor[i * 3] = -dhx / len; nor[i * 3 + 1] = 1 / len; nor[i * 3 + 2] = -dhz / len;
 
@@ -163,8 +206,28 @@ export function createTerrain() {
           const k = v * 1.2 > 1 ? 1 : v * 1.2;
           r = p[0] + (GW[0] - p[0]) * k; g = p[1] + (GW[1] - p[1]) * k; b = p[2] + (GW[2] - p[2]) * k;
         }
-        // Slope darkening gives banks and ridges definition; bare earth faces darkest.
         const cos = 1 / len;
+        // Bedrock shows in steep walls cut below its top, in faint strata.
+        // Judge the face around this vertex (its neighbours' heights), since
+        // a wall one cell wide has no vertex part-way up it.
+        if (cutting && bedrock) {
+          const h0 = height[i], ha = height[cy * cols + x0], hb = height[cy * cols + x1], hc = height[y0 * cols + cx], hd = height[y1 * cols + cx];
+          const lo = Math.min(h0, ha, hb, hc, hd), hi = Math.max(h0, ha, hb, hc, hd);
+          const span = hi - lo;
+          if (s === W && hi - h0 > st.bankHeight + 2) {
+            // The river's edge at the foot of a bluff: the face above the water is bare.
+            r = PAL[2][0]; g = PAL[2][1]; b = PAL[2][2];
+          }
+          if (span > 1.5 && lo < bedrock[i]) {
+            const frac = Math.min(1, (Math.min(bedrock[i], hi) - lo) / span);
+            const k = frac * Math.min(1, Math.max(0, (span / cell - 0.3) * 2));
+            if (k > 0 && (s !== W || hi - h0 > st.bankHeight + 2)) {
+              const band = 0.84 + 0.16 * Math.sin(h0 * 3.7 + meadow[i] * 3);
+              r += (BR[0] * band - r) * k; g += (BR[1] * band - g) * k; b += (BR[2] * band - b) * k;
+            }
+          }
+        }
+        // Slope darkening gives banks and ridges definition; bare earth faces darkest.
         const shade = s === SURFACE.EARTH ? 0.55 + 0.45 * cos : 0.7 + 0.3 * cos;
         const j = jitter[i] * shade;
         col[i * 3] = r * j; col[i * 3 + 1] = g * j; col[i * 3 + 2] = b * j;
@@ -172,7 +235,6 @@ export function createTerrain() {
     }
     // Soften the grid-stepped bank line: cells touching water take the 3x3
     // average of their neighbours' colours (colour only; heights stay put).
-    const W = SURFACE.WATER;
     for (let cy = 1; cy < rows - 1; cy++) {
       for (let cx = 1; cx < cols - 1; cx++) {
         const i = cy * cols + cx;
@@ -189,6 +251,11 @@ export function createTerrain() {
     }
     for (const i of edgeList) { col[i * 3] = edge[i * 3]; col[i * 3 + 1] = edge[i * 3 + 1]; col[i * 3 + 2] = edge[i * 3 + 2]; }
     edgeList.length = 0;
+    if (cutting || adaptive) {
+      splitQuads(geometry.index.array, cutting ? disp : null);
+      geometry.index.needsUpdate = true;
+      adaptive = cutting;
+    }
     geometry.attributes.position.needsUpdate = true;
     geometry.attributes.normal.needsUpdate = true;
     geometry.attributes.color.needsUpdate = true;
@@ -208,6 +275,9 @@ export function createTerrain() {
     skirtGeometry.computeBoundingSphere();
   }
 
+  // The bedrock surface arrives only when it moves; keep the latest copy.
+  function setBedrock(b) { bedrock = b; }
+
   // Height (world y) at an engine position, for placing things on the ground.
   function heightAt(snapshot, x, y, exaggeration) {
     const g = snapshot.grid;
@@ -216,5 +286,5 @@ export function createTerrain() {
     return g.height[cy * g.cols + cx] * exaggeration;
   }
 
-  return { group, mesh, update, heightAt };
+  return { group, mesh, update, heightAt, setBedrock };
 }

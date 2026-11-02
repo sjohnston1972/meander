@@ -38,6 +38,9 @@ export function createGrid(settings, rng) {
     lakeLost: new Uint8Array(n),     // 1 = an oxbow cell the river has since taken back
     chanList: [],                    // indices of river cells this step
     chanLevel: new Float32Array(n),  // water level last time the cell was channel
+    bedrock: new Float32Array(n),    // top of the bedrock under the alluvium, metres
+    alluvium: settings.alluviumDepth, // mean alluvium depth the bedrock was placed at
+    bedrockVersion: 0,               // bumps when the bedrock moves, so the renderer re-reads it
     stamp: new Uint32Array(n),       // per-call visit marker
     stampId: 1,
     slope: settings.valleySlope,
@@ -46,6 +49,7 @@ export function createGrid(settings, rng) {
   const relief = createNoise2D(settings.seed * 104729 + 3);
   const cover = createNoise2D(settings.seed * 15485863 + 11);
   const patch = createNoise2D(settings.seed * 7919 + 1);
+  const rockTop = createNoise2D(settings.seed * 31337 + 29);
   const nScale = FLOODPLAIN.noiseScaleWidths * settings.channelWidth;
   for (let cy = 0; cy < rows; cy++) {
     for (let cx = 0; cx < cols; cx++) {
@@ -58,6 +62,7 @@ export function createGrid(settings, rng) {
       grid.surface[i] = SURFACE.GRASS;
       grid.veg[i] = Math.min(1, Math.max(0, 0.55 + (cover(x / 200 + 7, y / 200 + 3) - 0.5) * 1.2));
       grid.patch[i] = patch(x / nScale, y / nScale);
+      grid.bedrock[i] = h - settings.alluviumDepth + (rockTop(x / FLOODPLAIN.bedrockScale, y / FLOODPLAIN.bedrockScale) - 0.5) * 2 * FLOODPLAIN.bedrockNoise;
     }
   }
   if (settings.hardRock) {
@@ -77,7 +82,7 @@ export function rebase(grid, settings) {
   if (grid.slope === settings.valleySlope && grid.bankHeight === settings.bankHeight) return;
   // Shift every cell by the change in the reference floodplain at its x, so
   // terraces and the lower floodplain inside the belt keep their relative relief.
-  const { cols, rows, cell, base, height } = grid;
+  const { cols, rows, cell, base, height, bedrock } = grid;
   const old = { valleySlope: grid.slope, bankHeight: grid.bankHeight };
   for (let cy = 0; cy < rows; cy++) {
     for (let cx = 0; cx < cols; cx++) {
@@ -86,10 +91,21 @@ export function rebase(grid, settings) {
       const d = baseLevel(x, settings) - baseLevel(x, old);
       height[i] += d;
       base[i] += d;
+      bedrock[i] += d;
     }
   }
+  grid.bedrockVersion++;
   grid.slope = settings.valleySlope;
   grid.bankHeight = settings.bankHeight;
+}
+
+// The alluvium depth changed: move the bedrock surface up or down with it.
+export function setAlluvium(grid, depth) {
+  const d = grid.alluvium - depth;
+  if (d === 0) return;
+  for (let i = 0; i < grid.bedrock.length; i++) grid.bedrock[i] += d;
+  grid.alluvium = depth;
+  grid.bedrockVersion++;
 }
 
 // Paint (or clear) a disc of hard rock.
@@ -278,6 +294,53 @@ export function retireOxbow(grid, oxbow) {
     channel[i] = 0;
     surface[i] = SURFACE.MARSH;
     height[i] = Math.min(height[i], base[i] - FLOODPLAIN.scarDepth);
+  }
+}
+
+// Slumping: where two neighbouring dry cells differ by more than a stable
+// slope allows, material slides from the high one to the low one. A bluff
+// beside the river slumps too, down to a stable slope above the river's own
+// floodplain level, and the river carries the debris away. Faces cut into
+// bedrock stand steeper. The engine runs this only while the river is
+// cutting down, so it shapes terrace scarps and leaves ordinary banks (and
+// every non-incising river) exactly as the channel stamp made them.
+export function relaxSlopes(grid, settings) {
+  const { cols, rows, cell, height, channel, chanLevel, bedrock } = grid;
+  const soft = cell * FLOODPLAIN.scarpSlope;
+  const hard = soft * FLOODPLAIN.rockScarpFactor;
+  const D = effectiveDepth(settings);
+  const bank = settings.bankHeight;
+  // Dry cell `d` beside river cell `r`: no higher than one stable step above
+  // the floodplain that river builds.
+  const bluff = (d, r) => {
+    const plain = chanLevel[r] - D + bank;
+    const cap = plain + (chanLevel[r] - D < bedrock[d] ? hard : soft);
+    if (height[d] > cap) height[d] = cap;
+  };
+  const relax = (i, j) => {
+    const ci = channel[i], cj = channel[j];
+    if (ci || cj) {
+      if (ci === 1 && !cj) bluff(j, i);
+      else if (cj === 1 && !ci) bluff(i, j);
+      return;
+    }
+    let hi = i, lo = j;
+    if (height[j] > height[i]) { hi = j; lo = i; }
+    const d = height[hi] - height[lo];
+    const limit = height[lo] < bedrock[hi] ? hard : soft;
+    if (d <= limit) return;
+    const move = (d - limit) / 2;
+    height[hi] -= move;
+    height[lo] += move;
+  };
+  for (let pass = 0; pass < FLOODPLAIN.scarpPasses; pass++) {
+    for (let cy = 0; cy < rows; cy++) {
+      for (let cx = 0; cx < cols; cx++) {
+        const i = cy * cols + cx;
+        if (cx < cols - 1) relax(i, i + 1);
+        if (cy < rows - 1) relax(i, i + cols);
+      }
+    }
   }
 }
 

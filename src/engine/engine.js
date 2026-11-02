@@ -11,7 +11,7 @@ import {
   migrationRate, migrate, findNeckCutoff, spliceCutoff, findChuteCutoff,
 } from './centreline.js';
 import {
-  createGrid, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth, cellIndex,
+  createGrid, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth, cellIndex, setAlluvium, relaxSlopes,
 } from './floodplain.js';
 
 export class Engine {
@@ -37,7 +37,8 @@ export class Engine {
     this.discharge = this.settings.meanDischarge;
     this.yearDischargeAt = -1;
     this.incision = 0;          // metres the whole water profile has cut down
-    this.incisionTarget = 0;    // extra incision still to do after a sudden base-level drop
+    this.knickpoints = [];      // [{ pos: metres upstream of the outlet, drop: metres }]
+    this.sentBedrockVersion = -1;
     this.rate = new Float64Array(x.length);
     this.curv = new Float64Array(x.length);
     this.level = new Float64Array(x.length);
@@ -66,13 +67,14 @@ export class Engine {
       lastHistoryYear: this.lastHistoryYear,
       flood: this.flood, floodRemaining: this.floodRemaining, floodPending: this.floodPending,
       discharge: this.discharge, yearDischargeAt: this.yearDischargeAt,
-      incision: this.incision, incisionTarget: this.incisionTarget,
+      incision: this.incision, knickpoints: this.knickpoints.map((k) => ({ ...k })),
       landDt: this.landDt,
       grid: {
         cols: g.cols, rows: g.rows, cell: g.cell, slope: g.slope, bankHeight: g.bankHeight,
         height: g.height.slice(), base: g.base.slice(), relief: g.relief.slice(), surface: g.surface.slice(),
         patch: g.patch.slice(), rock: g.rock.slice(), veg: g.veg.slice(), channel: g.channel.slice(),
         lakeLost: g.lakeLost.slice(), chanLevel: g.chanLevel.slice(), chanList: Int32Array.from(g.chanList),
+        bedrock: g.bedrock.slice(), alluvium: g.alluvium,
       },
     };
   }
@@ -92,7 +94,9 @@ export class Engine {
     this.lastHistoryYear = st.lastHistoryYear ?? -Infinity;
     this.flood = st.flood; this.floodRemaining = st.floodRemaining; this.floodPending = st.floodPending;
     this.discharge = st.discharge; this.yearDischargeAt = st.yearDischargeAt;
-    this.incision = st.incision; this.incisionTarget = st.incisionTarget ?? 0;
+    this.incision = st.incision;
+    this.knickpoints = (st.knickpoints || []).map((k) => ({ pos: +k.pos || 0, drop: +k.drop || 0 }));
+    this.sentBedrockVersion = -1;
     this.landDt = st.landDt;
     const g = st.grid;
     const n = g.cols * g.rows;
@@ -102,6 +106,7 @@ export class Engine {
       surface: Uint8Array.from(g.surface), patch: Float32Array.from(g.patch), rock: Uint8Array.from(g.rock),
       veg: Float32Array.from(g.veg), channel: Uint8Array.from(g.channel), lakeLost: Uint8Array.from(g.lakeLost),
       chanLevel: Float32Array.from(g.chanLevel), chanList: Array.from(g.chanList),
+      bedrock: Float32Array.from(g.bedrock), alluvium: g.alluvium, bedrockVersion: 0,
       stamp: new Uint32Array(n), stampId: 1,
     };
     this.events = [];
@@ -117,6 +122,7 @@ export class Engine {
   // Settings that apply from the next tick without a reset.
   applySettings(partial) {
     Object.assign(this.settings, partial);
+    if (partial.alluviumDepth !== undefined) setAlluvium(this.grid, this.settings.alluviumDepth);
     if (partial.valleySlope !== undefined || partial.bankHeight !== undefined) {
       rebase(this.grid, this.settings);
       this.computeLevels();
@@ -126,14 +132,14 @@ export class Engine {
   // Tall banks (terrace edges) erode more slowly than the river's own banks.
   // The river's own levees (up to leveeMaxHeight) do not count; only ground
   // standing higher than that, such as a terrace edge, slows it down. The
-  // slowing goes with the square root of the extra height (tall banks also
-  // fail by slumping, which keeps them retreating) and never below
+  // slowing is weak, a low power of the extra height (tall banks also fail
+  // by slumping, which keeps them retreating), and never below
   // minBankFactor, so an incising river keeps sweeping the valley floor and
   // cuts a broad terraced valley rather than freezing in a slot.
   static bankFactor(actual, nominal) {
     const excess = actual - nominal - FLOODPLAIN.leveeMaxHeight;
     if (excess <= 0) return 1;
-    return Math.max(CENTRELINE.minBankFactor, Math.sqrt(nominal / (nominal + excess)));
+    return Math.max(CENTRELINE.minBankFactor, Math.pow(nominal / (nominal + excess), CENTRELINE.bankHeightExponent));
   }
 
   static helpers = { sampleErodibility, effectiveDepth, bankFactor: Engine.bankFactor };
@@ -142,17 +148,33 @@ export class Engine {
 
   triggerFlood() { this.floodPending = true; }
 
-  // Sudden base-level fall: the bed cuts down towards it at a limited rate.
-  dropBaseLevel(metres = CENTRELINE.baseLevelDrop) { this.incisionTarget += metres; }
+  // Sudden base-level fall: a step (knickpoint) forms at the outlet and
+  // travels upstream, lowering the river behind it.
+  dropBaseLevel(metres = CENTRELINE.baseLevelDrop) { this.knickpoints.push({ pos: 0, drop: metres }); }
 
-  // Vertical erosion for one step: steady incision plus any pending drop.
+  // Vertical erosion for one step: steady incision everywhere, and each
+  // knickpoint moves upstream (faster in high flow). Knickpoints that have
+  // passed the head of the river are folded into the steady incision in
+  // computeLevels, which knows the river's length.
   updateIncision() {
     this.incision += (this.settings.incisionRate / 1000) * DT;
-    if (this.incisionTarget > 0) {
-      const cut = Math.min(this.incisionTarget, CENTRELINE.incisionMaxRate * DT);
-      this.incision += cut;
-      this.incisionTarget -= cut;
+    if (this.knickpoints.length) {
+      const v = CENTRELINE.knickCelerity * Math.sqrt(Math.max(0, this.discharge) / this.settings.meanDischarge) * DT;
+      for (const k of this.knickpoints) k.pos += v;
     }
+  }
+
+  // How far the knickpoints have lowered the water `fromOutlet` metres
+  // (along the river) above the outlet.
+  knickLowering(fromOutlet) {
+    let drop = 0;
+    const L = CENTRELINE.knickLength;
+    for (const k of this.knickpoints) {
+      const t = (k.pos + L - fromOutlet) / L; // the step rises from pos to pos + L: 1 below it, 0 above
+      if (t >= 1) drop += k.drop;
+      else if (t > 0) drop += k.drop * t * t * (3 - 2 * t);
+    }
+    return drop;
   }
 
   // Paint hard rock (or clear it) in a disc, from the renderer's mouse.
@@ -169,8 +191,15 @@ export class Engine {
     const top = s.valleySlope * VALLEY.length + this.depth;
     const fall = s.valleySlope * VALLEY.length;
     const n = this.x.length;
+    for (let k = this.knickpoints.length - 1; k >= 0; k--) {
+      const kp = this.knickpoints[k];
+      if (kp.pos > total) { this.incision += kp.drop; this.knickpoints.splice(k, 1); }
+    }
     const level = new Float64Array(n);
-    for (let i = 0; i < n; i++) level[i] = top - (arc[i] / total) * fall - this.incision;
+    const knick = this.knickpoints.length > 0;
+    for (let i = 0; i < n; i++) {
+      level[i] = top - (arc[i] / total) * fall - this.incision - (knick ? this.knickLowering(total - arc[i]) : 0);
+    }
     this.level = level;
   }
 
@@ -197,8 +226,19 @@ export class Engine {
     const bx = x + (ty / l) * side * W * 0.5, by = y - (tx / l) * side * W * 0.5;
     const ground = sampleErodibility(this.grid, bx, by, s);
     // Bank height at the outer bank: the old floodplain stands tall above an incised river.
-    const actualBank = this.grid.height[cellIndex(this.grid, bx, by)] - (this.level[i] - this.depth);
-    return wall * exit * ground * Engine.bankFactor(actualBank, s.bankHeight);
+    const ci = cellIndex(this.grid, bx, by);
+    const bed = this.level[i] - this.depth;
+    const actualBank = this.grid.height[ci] - bed;
+    // Where the river has cut below the top of the bedrock, that part of the
+    // bank is rock and erodes more slowly.
+    const rockDepth = this.grid.bedrock[ci] - bed;
+    let rock = 1;
+    if (rockDepth > 0) rock = 1 - Math.min(1, rockDepth / Math.max(0.5, actualBank)) * (1 - CENTRELINE.bedrockBankFactor);
+    // Tall banks only matter once the river is cutting down (terraces). On a
+    // river that is not, a bank can look tall just because the water profile
+    // follows the river's length while the floodplain follows the valley.
+    const tall = this.incision > 0 || this.knickpoints.length ? Engine.bankFactor(actualBank, s.bankHeight) : 1;
+    return wall * exit * ground * rock * tall;
   }
 
   updateDischarge() {
@@ -283,6 +323,7 @@ export class Engine {
     this.tickCount++;
     if (this.tickCount % FLOODPLAIN.landEveryTicks === 0) {
       growLand(this.grid, s, this.landDt, this.flood);
+      if (this.incision > 0 || this.knickpoints.length) relaxSlopes(this.grid, s);
       this.landDt = 0;
     }
 
@@ -473,6 +514,18 @@ export class Engine {
         }
       }
     }
+    // Knickpoints: the step in the bed, at its place along the river.
+    if (this.knickpoints.length) {
+      const arc = arcLength(this.x, this.y);
+      const total = arc[n - 1];
+      for (const k of this.knickpoints) {
+        const target = total - k.pos;
+        if (target < 0) continue;
+        let i = 0;
+        while (i < n - 1 && arc[i] < target) i++;
+        out.push({ type: 'knickpoint', x: this.x[i], y: this.y[i], level: this.level[i] });
+      }
+    }
     if (this.flood > 0) out.push({ type: 'flood', x: this.x[Math.floor(n / 2)], y: this.y[Math.floor(n / 2)], level: this.level[Math.floor(n / 2)] + 1 });
     return out;
   }
@@ -524,9 +577,15 @@ export class Engine {
         height: Float32Array.from(g.height),
         surface: Uint8Array.from(g.surface),
         veg: veg8,
+        // The bedrock surface only when it has moved since the last snapshot.
+        bedrock: g.bedrockVersion !== this.sentBedrockVersion ? Float32Array.from(g.bedrock) : null,
       },
-      settings: { channelWidth: W, channelDepth: this.depth, bankHeight: s.bankHeight, valleySlope: s.valleySlope, incision: this.incision },
+      settings: {
+        channelWidth: W, channelDepth: this.depth, bankHeight: s.bankHeight, valleySlope: s.valleySlope, incision: this.incision,
+        cutting: this.incision > 0 || this.knickpoints.length > 0, // terraces, scarps and maybe bedrock to draw
+      },
     };
+    this.sentBedrockVersion = g.bedrockVersion;
     this.events = [];
     return snap;
   }

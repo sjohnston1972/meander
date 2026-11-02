@@ -76,7 +76,7 @@ export function validateState(state) {
   const g = state.grid;
   if (!g || g.cols !== q.cols || g.rows !== q.rows) fail('grid size');
   const n = g.cols * g.rows;
-  for (const k of ['height', 'base', 'relief', 'surface', 'patch', 'rock', 'veg', 'channel', 'lakeLost', 'chanLevel']) {
+  for (const k of ['height', 'base', 'relief', 'surface', 'patch', 'rock', 'veg', 'channel', 'lakeLost', 'chanLevel', 'bedrock']) {
     if (!ArrayBuffer.isView(g[k]) || g[k].length !== n) fail(`grid ${k}`);
   }
   if (!(g.chanList instanceof Int32Array) || g.chanList.some((i) => i < 0 || i >= n)) fail('grid channel list');
@@ -90,4 +90,6 @@ export function validateState(state) {
   for (const h of state.history) if (!finite(h.x) || !finite(h.y) || h.x.length !== h.y.length) fail('history');
   for (const k of ['year', 'tickCount', 'incision', 'discharge']) if (!Number.isFinite(state[k])) fail(k);
   if (!state.rng || !Number.isFinite(state.rng.state)) fail('random state');
+  if (!Number.isFinite(g.alluvium)) fail('alluvium');
+  if (!Array.isArray(state.knickpoints) || state.knickpoints.some((k) => !Number.isFinite(k.pos) || !Number.isFinite(k.drop))) fail('knickpoints');
 }

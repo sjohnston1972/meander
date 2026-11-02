@@ -168,6 +168,8 @@ export function createWater() {
 
   // Per-point cross-section for the cross-section panel and picking.
   let lastSnapshot = null;
+  let foam = null;
+  const foamColour = new THREE.Color(RENDER.foamColour);
 
   function update(snapshot, exaggeration, opacity, floodLevel = snapshot.flood) {
     lastSnapshot = snapshot;
@@ -176,6 +178,19 @@ export function createWater() {
     const f = floodLevel;
     const floodLift = f * (snapshot.settings.bankHeight - snapshot.settings.channelDepth + 0.6) * exaggeration;
     // Colour: pools dark at bends (towards the thalweg side), riffles lighter on straights.
+    // White water where the surface steepens well beyond the river's own
+    // slope: the step of a knickpoint working upstream.
+    const n = c.x.length;
+    if (!foam || foam.length < n) foam = new Float32Array(Math.max(n, 64) * 2);
+    let len = 0;
+    for (let i = 1; i < n; i++) len += Math.hypot(c.x[i] - c.x[i - 1], c.y[i] - c.y[i - 1]);
+    const mean = Math.max(1e-5, (c.level[0] - c.level[n - 1]) / Math.max(1, len));
+    for (let i = 0; i < n; i++) {
+      const a = Math.max(0, i - 2), b = Math.min(n - 1, i + 2);
+      const d = Math.hypot(c.x[b] - c.x[a], c.y[b] - c.y[a]) || 1;
+      const ratio = (c.level[a] - c.level[b]) / d / mean;
+      foam[i] = ratio > 3 ? Math.min(1, (ratio - 3) / 5) : 0;
+    }
     const colourFn = (i, u01) => {
       const depth = c.depth[i], mean = c.meanDepth;
       const bend = Math.min(1, (depth / mean - 1) / 0.8);
@@ -186,6 +201,7 @@ export function createWater() {
       tmp.copy(riffleColour).lerp(poolColour, Math.min(1, deep));
       // Faint lighter rim where the water meets the bank.
       if (u01 === 0 || u01 === 1) tmp.lerp(rimColour, 0.35);
+      if (foam[i] > 0) tmp.lerp(foamColour, foam[i] * (0.55 + 0.25 * Math.sin(u01 * 9 + i)));
       tmp.lerp(floodColour, f * 0.85);
     };
     const used = writeRibbon(river, 0, c.x, c.y, c.level, W * (1 + f * 0.3), exaggeration, colourFn, 0, 0.06 + floodLift);

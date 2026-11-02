@@ -27,6 +27,7 @@ export const defaults = {
   erodibility: 1,          // bank erodibility multiplier (1 = soft lowland soil)
   bankHeight: 4,           // floodplain height above the channel bed in metres
   patchiness: 0.5,         // how varied the ground is (0 = uniform, 1 = very patchy)
+  alluviumDepth: 12,       // metres of soft river sediment over bedrock; an incising river reaches rock below this
   hardRock: false,         // scatter hard rock patches that the river cannot easily erode
   paintRock: false,        // when on, click-drag on the ground paints hard rock
 
@@ -79,6 +80,7 @@ export const RANGES = {
   sedimentSupply: [0.2, 3, 0.1],
   erodibility: [0.1, 3, 0.05],
   bankHeight: [1.5, 8, 0.1],
+  alluviumDepth: [4, 40, 0.5],
   patchiness: [0, 1, 0.05],
   vegGrowth: [0, 3, 0.1],
   rootStrength: [0, 1, 0.05],
@@ -127,9 +129,12 @@ export const CENTRELINE = {
   bankNoise: 0.05,         // random lateral wobble per step as a fraction of the migration scale
   minSeparationWidths: 4,  // neck cutoff only between reaches this far apart along the river
   depthBelowBank: 0.5,     // the channel is never deeper than bank height minus this (metres)
-  incisionMaxRate: 0.05,   // m/yr the bed can cut down after a sudden base-level drop
+  knickCelerity: 5,        // m/yr a knickpoint (the step left by a base-level drop) travels upstream at mean flow
+  knickLength: 250,        // metres of river over which a knickpoint's step is spread
+  bedrockBankFactor: 0.5,  // erodibility of the part of a bank that is bedrock, relative to alluvium
   baseLevelDrop: 2,        // metres per press of the "Drop base level" button
   minBankFactor: 0.4,      // erodibility floor for very tall banks (terrace edges); lower and an incising river freezes in a slot
+  bankHeightExponent: 0.25, // tall banks slow retreat as (normal/actual)^this; higher and an incising river straightens
   endProtection: 6,        // points at each end that never migrate or cut off
   wallMarginWidths: 8,     // erodibility fades to zero this many widths from the valley walls
   outletFadeFraction: 0.12, // fraction of valley length before the outlet where migration fades out
@@ -176,6 +181,11 @@ export const FLOODPLAIN = {
   rockRadiusWidths: 2.5,   // radius of each rock patch, in channel widths
   rockErodibility: 0.03,   // erodibility multiplier inside rock
   noiseScaleWidths: 6,     // size of erodibility noise blobs in channel widths
+  bedrockNoise: 2.5,       // metres the bedrock surface rises and falls about its mean depth
+  bedrockScale: 500,       // metres, size of the bedrock highs and lows
+  scarpSlope: 0.6,         // steepest stable slope (rise over run, about 31 degrees) of a terrace scarp in alluvium
+  rockScarpFactor: 1.8,    // bedrock walls stand this many times steeper (more and they read as one-cell cliffs)
+  scarpPasses: 2,          // slumping passes per land update while the river is cutting down
 };
 
 // --- Thalweg and pools (channel cross-section shape) ---
@@ -205,6 +215,8 @@ export const RENDER = {
   floodColour: 0x7a6a3c,   // muddy flood water
   lakeColour: 0x3f7a78,    // fresh oxbow lake (stiller, a touch greener than the river)
   marshColour: 0x5f7f4a,   // infilled oxbow
+  bedrockColour: 0x857d72, // bedrock exposed in terrace walls
+  foamColour: 0xdfeef0,    // white water over a knickpoint
   surfaceColours: {
     0: 0x5d8a3a,           // GRASS
     1: 0xd2b97d,           // SAND
@@ -284,7 +296,8 @@ export const HELP = {
   channelDepth: 'Mean channel depth in metres',
   valleySlope: 'Fall of the valley floor per metre. Shown as metres per kilometre',
   incisionRate: 'How fast the river cuts down, in metres per 1000 years. The old floodplain is left standing as terraces',
-  dropBase: 'Lower the base level by 2 m now, as if the sea or the trunk river fell. The river cuts down and leaves a terrace',
+  dropBase: 'Lower the base level by 2 m now, as if the sea or the trunk river fell. A step (knickpoint) forms at the outlet and works its way upstream, leaving a terrace behind it',
+  alluviumDepth: 'Depth of soft river sediment over bedrock. A river that cuts deeper than this meets rock, which erodes more slowly and shows in the terrace walls',
   sedimentSupply: 'How quickly point bars and levees build',
   erodibility: 'How easily banks erode. 1 is soft lowland soil',
   bankHeight: 'Height of the floodplain above the channel bed in metres',
@@ -362,6 +375,10 @@ export const EXPLANATIONS = {
   riffle: {
     title: 'Riffle',
     text: 'Shallow, faster water over gravel between bends, where the thalweg crosses from one side to the other.',
+  },
+  knickpoint: {
+    title: 'Knickpoint',
+    text: 'A steep step in the river bed left by a fall in base level. The water speeds up over it and erodes it, so the step works its way upstream, cutting a lower valley behind it.',
   },
   terrace: {
     title: 'River terrace',

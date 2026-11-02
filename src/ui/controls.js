@@ -77,6 +77,7 @@ export function createControls(settings, actions) {
   const banks = gui.addFolder('Banks');
   add(banks, 'erodibility').name('Erodibility');
   add(banks, 'bankHeight').name('Bank height (m)');
+  add(banks, 'alluviumDepth').name('Alluvium over bedrock (m)');
   add(banks, 'patchiness').name('Patchiness');
   add(banks, 'hardRock').name('Hard rock patches (reset)');
   add(banks, 'paintRock').name('Paint rock with mouse');
