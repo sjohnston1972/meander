@@ -206,11 +206,18 @@ export const HILLS = {
   slideFloodFactor: 3,     // landslides are this many times likelier during a flood
   slideWidth: 0.8,         // half-width of the scar, in wall heights (clamped to 1.5 to 6 cells)
   slideBack: 0.5,          // the scar reaches this many wall heights back behind the rim
-  slideRunout: 1.5,        // the debris runs out this many wall heights beyond the foot of the wall
+  slideRunout: 2,          // the debris runs out this many wall heights beyond the foot of the wall
   slideKeep: 0.95,         // fraction of the failed mass left as debris (the rest is fines carried away)
   slidePush: 3,            // m/yr the river is pushed away from debris that reaches it, fading over slidePushYears
   slidePushYears: 30,
   slideMarks: 8,           // recent landslide scars remembered for Explain labels
+  damMinHeight: 1.5,       // metres above the water debris must stand to dam the river
+  damHeightFraction: 0.4,  // a dam stands at most this fraction of the failed wall's height above the water
+  damErosion: 0.05,        // m/yr overtopping water lowers a dam's crest
+  damFloodErosion: 4,      // ... this many times faster at a flood peak
+  damFailChance: 0.004,    // chance per year that a dam damMinHeight tall bursts (taller dams are likelier to)
+  damSpacing: 500,         // metres: no new dam this close to an existing one
+  lakeInfill: 0.02,        // m/yr silt settles on a landslide lake's floor
 };
 
 // --- Braided rivers ---

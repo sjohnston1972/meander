@@ -15,6 +15,7 @@ import {
   createGrid, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth, cellIndex, setAlluvium, stampBraided,
 } from './floodplain.js';
 import { relaxSlopes, findSlideSite, landslide } from './hillslope.js';
+import { fillPond } from './dams.js';
 import { exp, pow, hypot } from './dmath.js';
 
 export class Engine {
@@ -48,6 +49,8 @@ export class Engine {
     this.threads = null;        // { offsets[k][i], width, half } while braided
     this.slides = [];           // landslide debris pushing the river: [{ x, y, dirx, diry, width, age }]
     this.slideMarks = [];       // recent landslide scars, for labels: [{ x, y, year }]
+    this.dams = [];             // landslide dams: [{ id, x, y, crest, natural, age, radius, cells }]
+    this.damCount = 0;
     this.rate = new Float64Array(x.length);
     this.curv = new Float64Array(x.length);
     this.level = new Float64Array(x.length);
@@ -79,6 +82,7 @@ export class Engine {
       incision: this.incision, knickpoints: this.knickpoints.map((k) => ({ ...k })),
       braid: this.braid, braidTime: this.braidTime,
       slides: this.slides.map((v) => ({ ...v })), slideMarks: this.slideMarks.map((v) => ({ ...v })),
+      dams: this.dams.map((d) => ({ ...d, cells: d.cells.slice() })), damCount: this.damCount,
       landDt: this.landDt,
       grid: {
         cols: g.cols, rows: g.rows, cell: g.cell, slope: g.slope, bankHeight: g.bankHeight,
@@ -114,6 +118,8 @@ export class Engine {
     this.threads = null;
     this.slides = (st.slides || []).map((v) => ({ x: v.x, y: v.y, dirx: v.dirx, diry: v.diry, width: v.width, age: v.age }));
     this.slideMarks = (st.slideMarks || []).map((v) => ({ x: v.x, y: v.y, year: v.year }));
+    this.dams = (st.dams || []).map((d) => ({ id: d.id, x: d.x, y: d.y, crest: d.crest, natural: d.natural, age: d.age, radius: d.radius, cells: Int32Array.from(d.cells) }));
+    this.damCount = st.damCount ?? 0;
     this.landDt = st.landDt;
     const g = st.grid;
     const n = g.cols * g.rows;
@@ -291,6 +297,12 @@ export class Engine {
     for (let i = 0; i < n; i++) {
       level[i] = top - (arc[i] / total) * fall - this.incision - (knick ? this.knickLowering(total - arc[i]) : 0);
     }
+    // Behind a landslide dam the water stands level at the crest.
+    for (const d of this.dams) {
+      const j = this.nearestPoint(d.x, d.y);
+      d.natural = level[Math.min(n - 1, j + 1)];
+      for (let i = j; i >= 0 && level[i] < d.crest; i--) level[i] = d.crest;
+    }
     this.level = level;
   }
 
@@ -382,6 +394,7 @@ export class Engine {
     const k = new Float64Array(n);
     const prot = CENTRELINE.endProtection;
     for (let i = prot; i < n - prot; i++) k[i] = base * this.localErodibility(i);
+    if (this.dams.length) { const pool = this.pooledPoints(); for (let i = 0; i < n; i++) if (pool[i]) k[i] = 0; } // a lake does not migrate
     const rate = migrationRate(this.x, this.y, c, k, { omega: s.omega, gamma: s.gamma, alpha: s.alpha }, ds, W);
     // Bank heterogeneity: a little random lateral wobble seeds bends on
     // straight reaches, which the model then amplifies at its preferred wavelength.
@@ -426,6 +439,7 @@ export class Engine {
         relaxSlopes(this.grid, s, this.landDt);
         this.spontaneousSlides(this.landDt);
       }
+      if (this.dams.length) this.updateDams(this.landDt);
       this.landDt = 0;
     }
     // Rock planed under the river: tell the renderer now and then, not every step.
@@ -492,10 +506,106 @@ export class Engine {
     this.events.push({ type: 'landslide', x: rec.footX, y: rec.footY, year: this.year, volume: rec.volume });
     this.slideMarks.push({ x: rec.x, y: rec.y, year: this.year });
     if (this.slideMarks.length > HILLS.slideMarks) this.slideMarks.shift();
+    // Enough debris in the river to stand well above the water: a dam.
+    const cx = rec.footX + rec.dirx * rec.runout * 0.5, cy = rec.footY + rec.diry * rec.runout * 0.5;
+    const above = Math.min(rec.riverDepth - this.depth, rec.height * HILLS.damHeightFraction);
+    if (above >= HILLS.damMinHeight) {
+      const j = this.nearestPoint(cx, cy);
+      if (hypot(this.x[j] - cx, this.y[j] - cy) < rec.width && this.makeDam(j, above, Math.max(rec.width, 3 * this.settings.channelWidth))) {
+        this.events.push({ type: 'landslidedam', x: this.x[j], y: this.y[j], year: this.year, height: above });
+        return rec;
+      }
+    }
     if (rec.intoRiver > 0) {
       this.slides.push({ x: rec.footX + rec.dirx * rec.runout * 0.5, y: rec.footY + rec.diry * rec.runout * 0.5, dirx: rec.dirx, diry: rec.diry, width: rec.width, age: 0 });
     }
     return rec;
+  }
+
+  nearestPoint(x, y) {
+    let best = 0, bestD = Infinity;
+    for (let i = 0; i < this.x.length; i++) {
+      const dx = this.x[i] - x, dy = this.y[i] - y;
+      const d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+
+  // Centreline points standing in a landslide lake.
+  pooledPoints() {
+    const n = this.x.length;
+    const pool = new Uint8Array(n);
+    for (const d of this.dams) {
+      for (let i = Math.min(n - 1, this.nearestPoint(d.x, d.y)); i >= 0 && this.level[i] === d.crest; i--) pool[i] = 1;
+    }
+    return pool;
+  }
+
+  // Dam the river at centreline point `i`, `above` metres over the water.
+  // The water behind it rises to the crest. Returns false (and leaves the
+  // river as it was) if the water could get round the debris, or the river
+  // is already dammed nearby.
+  makeDam(i, above, radius = 3 * this.settings.channelWidth) {
+    const prot = CENTRELINE.endProtection;
+    const n = this.x.length;
+    if (i < prot + 5 || i > n - prot - 2) return false;
+    const x = this.x[i], y = this.y[i];
+    if (this.dams.some((d) => hypot(d.x - x, d.y - y) < HILLS.damSpacing)) return false;
+    const dam = { id: ++this.damCount, x, y, crest: this.level[i] + above, natural: this.level[i], age: 0, radius, cells: new Int32Array(0) };
+    this.dams.push(dam);
+    this.computeLevels();
+    this.stamp();
+    if (!this.fillDam(dam)) {
+      this.dams.pop();
+      this.computeLevels();
+      this.stamp();
+      return false;
+    }
+    return true;
+  }
+
+  // Re-flood a dam's lake; false if the water now gets round it.
+  fillDam(d) {
+    const j = this.nearestPoint(d.x, d.y);
+    const k = Math.max(0, j - 3);
+    const cells = fillPond(this.grid, cellIndex(this.grid, this.x[k], this.y[k]), d.crest, d.x, d.y, d.radius);
+    if (!cells) return false;
+    d.cells = cells;
+    return true;
+  }
+
+  // Dams wear down as the water pours over them, faster in floods, and
+  // sometimes burst. Their lakes drown the plants and slowly silt up; when
+  // a lake goes, its floor is left as wet ground.
+  updateDams(dt) {
+    const g = this.grid;
+    for (let k = this.dams.length - 1; k >= 0; k--) {
+      const d = this.dams[k];
+      d.age += dt;
+      d.crest -= HILLS.damErosion * dt * (1 + HILLS.damFloodErosion * this.flood);
+      const above = d.crest - d.natural;
+      let gone = above <= 0.1;
+      if (!gone && this.rng.chance(HILLS.damFailChance * dt * (above / HILLS.damMinHeight))) {
+        gone = true;
+        this.floodPending = true;
+        this.events.push({ type: 'outburst', x: d.x, y: d.y, year: this.year });
+      }
+      if (!gone && !this.fillDam(d)) gone = true;
+      if (gone) {
+        for (const i of d.cells) if (!g.channel[i]) { g.surface[i] = SURFACE.WETLAND; g.veg[i] = Math.min(g.veg[i], 0.2); }
+        this.dams.splice(k, 1);
+        continue;
+      }
+      const silt = HILLS.lakeInfill * dt;
+      for (const i of d.cells) {
+        if (g.channel[i]) continue;
+        g.veg[i] *= Math.max(0, 1 - 0.2 * dt);
+        g.surface[i] = SURFACE.WETLAND;
+        if (g.height[i] < d.crest - 0.3) g.height[i] = Math.min(d.crest - 0.3, g.height[i] + silt);
+      }
+    }
+    this.computeLevels();
   }
 
   // Debris in the river pushes the channel away from the slide, fading as
@@ -781,6 +891,7 @@ export class Engine {
       trails: this.trails(),
       features: this.features,
       braid: this.threads ? this.braidSnapshot() : null,
+      ponds: this.dams.map((d) => ({ id: d.id, level: d.crest, cells: d.cells })),
       grid: {
         cols: g.cols, rows: g.rows, cell: g.cell,
         height: Float32Array.from(g.height),

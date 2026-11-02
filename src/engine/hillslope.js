@@ -134,7 +134,7 @@ export function landslide(grid, settings, site, rng) {
   const wl = w * 1.4;
   let removed = 0;
   const lobe = [];
-  let weights = 0, riverWeight = 0;
+  let weights = 0, riverWeight = 0, riverPeak = 0;
   for (let cy = y0; cy <= y1; cy++) {
     for (let cx = x0; cx <= x1; cx++) {
       const i = cy * cols + cx;
@@ -157,7 +157,7 @@ export function landslide(grid, settings, site, rng) {
       const r = -s;
       if (r >= 0 && r < runout && Math.abs(u) < wl) {
         const k = (1 - (r / runout) * (r / runout)) * (1 - (u / wl) * (u / wl));
-        if (channel[i] === 1) riverWeight += k;
+        if (channel[i] === 1) { riverWeight += k; if (k > riverPeak) riverPeak = k; }
         else if (!channel[i]) lobe.push(i, k);
         weights += k;
       }
@@ -171,7 +171,7 @@ export function landslide(grid, settings, site, rng) {
       height[i] += add;
       if (add > 0.05) { surface[i] = SURFACE.SCREE; veg[i] = 0; }
     }
-    deepest = (keep * Math.min(1, riverWeight)) / weights; // debris depth over the channel at the lobe's middle
+    deepest = (keep * riverPeak) / weights; // the most debris dropped on any river cell
   }
   const area = cell * cell;
   return {
