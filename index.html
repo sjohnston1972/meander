@@ -28,7 +28,8 @@
       #hud .year { font-variant-numeric: tabular-nums; color: #d9e4e8; font-size: 0.95rem; margin-top: 2px; }
       #hud .flood { color: #e0b86a; font-size: 0.85rem; margin-top: 2px; min-height: 1em; }
       #hud .rec { color: #ff6b6b; font-size: 0.85rem; margin-top: 2px; }
-      #hud .sed { color: #d8c7a4; font-size: 0.8rem; margin-top: 2px; font-variant-numeric: tabular-nums; }
+      #hud .sed { color: #ecdcb8; font-size: 0.8rem; margin-top: 6px; font-variant-numeric: tabular-nums; background: rgba(18, 28, 32, 0.55); border-radius: 4px; padding: 3px 7px; display: inline-block; }
+      #hud .sed:empty { display: none; }
       #toasts { position: fixed; left: 56px; bottom: 16px; display: flex; flex-direction: column; gap: 6px; z-index: 6; pointer-events: none; }
       .toast { background: var(--panel); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 12px;
         font-size: 0.9rem; opacity: 0; transform: translateY(6px); transition: opacity 0.25s, transform 0.25s; }

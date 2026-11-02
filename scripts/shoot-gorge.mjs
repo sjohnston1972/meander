@@ -93,7 +93,7 @@ try {
   const y0 = await page.evaluate(() => window.meander.snapshot.year);
   await page.evaluate(() => window.meander.sim.step(1)); // a fresh snapshot redraws the water and the readout
   await page.waitForFunction((y) => window.meander.snapshot.year > y, y0, { timeout: 60000 });
-  await page.keyboard.press('2');
+  await page.keyboard.press('1');
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `docs/looks/${label}-gorge-8-sediment.png`, timeout: 180000, animations: 'disabled' });
   console.log('[gorge] sediment', await page.evaluate(() => document.getElementById('sed-hud').textContent));

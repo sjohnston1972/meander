@@ -82,3 +82,14 @@ at one steep angle, and a dead-straight canyon below the inlet.
 | Explain labels for landslides, gullies, fans, scree, rock ledges, abandoned meanders | `-3-labels` |
 
 `v12-phone-*` are the usual phone checks (`node scripts/shoot-phone.mjs v12`).
+
+## 2026-11-02: sediment (v1.3)
+
+`v13-gorge-*` from `node scripts/shoot-gorge.mjs v13 2500`: the same gorge
+river at year 2500, now carrying a sediment budget.
+
+| Change | Where it shows |
+| --- | --- |
+| Water clouded where the river carries fines from walls, landslides and gullies (it only gets muddier downstream, and clears below a landslide lake) | `-1-overview`, `-2-oblique` |
+| Show, Sediment load: the river coloured by its load (clear blue: less than comes in from upstream; brown: more), and the budget in the corner | `-8-sediment` |
+| Explain labels for aggrading and scoured reaches and lake deltas | `-3-labels` |
