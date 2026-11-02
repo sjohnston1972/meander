@@ -2,7 +2,7 @@
 // type, an erodibility multiplier and a vegetation value. The channel is carved
 // into it every step; land the channel leaves behind becomes point bar; floods
 // build levees; low ground slowly rises back to floodplain level.
-import { VALLEY, QUALITY, SURFACE, FLOODPLAIN, THALWEG, CENTRELINE, BRAID, HILLS, SEDIMENT } from '../config.js';
+import { VALLEY, QUALITY, SURFACE, FLOODPLAIN, THALWEG, CENTRELINE, BRAID, HILLS, SEDIMENT, GRAIN } from '../config.js';
 import { createNoise2D } from './random.js';
 import { sin, hypot } from './dmath.js';
 
@@ -263,13 +263,16 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
     }
   });
 
-  // Land the channel left behind this step becomes point bar.
+  // Land the channel left behind this step becomes point bar: gravel where
+  // the bed is gravelly (river.grain, the bed's gravel fraction per point), else sand.
+  const { grain } = river;
   for (const i of prevList) {
     if (channel[i] === 3) {
       channel[i] = 0;
       const top = Math.min(base[i] - 0.3, chanLevel[i] + FLOODPLAIN.barAboveWater + ridge);
       height[i] = top;
-      surface[i] = grid.rock[i] ? SURFACE.ROCK : SURFACE.SAND;
+      surface[i] = grid.rock[i] ? SURFACE.ROCK
+        : grain && grain[Math.min(grain.length - 1, grid.chanSeg[i])] > GRAIN.gravelBars ? SURFACE.GRAVEL : SURFACE.SAND;
       veg[i] = 0;
     }
   }

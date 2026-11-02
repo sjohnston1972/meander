@@ -211,6 +211,14 @@ export function createCrossSection() {
     text.textContent = bend > 0.15
       ? `Bend: deepest water (the thalweg) sits towards the ${outerRight ? 'right' : 'left'} outer bank, ${D.toFixed(1)} m deep. Width ${W} m. Arrows show the helical flow: surface water pushed to the outer bank, bed water returning inside.`
       : `Straight reach between bends: a shallow riffle, ${D.toFixed(1)} m deep and ${W} m wide, with little cross-channel circulation.`;
+    // What the bed is made of, once the sediment budget has sorted it.
+    const grain = snapshot.sediment?.grain;
+    const gi = current?.index;
+    if (grain && gi !== undefined && gi < grain.length) {
+      const g = grain[gi];
+      const bed = g > 0.72 ? 'coarse gravel (armoured)' : g > 0.6 ? 'gravel' : g < 0.3 ? 'sand' : 'sand and gravel';
+      text.textContent += ` Bed: ${bed}, ${Math.round(g * 100)}% gravel.`;
+    }
   }
 
   return { show, hide, refresh, draw, get open() { return !!current; } };

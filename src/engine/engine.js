@@ -1,7 +1,7 @@
 // The simulation engine. Owns the river centreline, the oxbows and the
 // floodplain grid, advances them one fixed time step per tick(), and hands out
 // snapshots for the renderer. Pure JavaScript; never touches three.js.
-import { VALLEY, DT, CENTRELINE, FLOODS, FLOODPLAIN, THALWEG, RENDER, SURFACE, BRAID, HILLS, SEDIMENT, LAKE, TRIB } from '../config.js';
+import { VALLEY, DT, CENTRELINE, FLOODS, FLOODPLAIN, THALWEG, RENDER, SURFACE, BRAID, HILLS, SEDIMENT, LAKE, TRIB, GRAIN } from '../config.js';
 
 const RENDER_FEATURE_TICKS = RENDER.featureEveryTicks;
 const BEDROCK_SEND_TICKS = 40; // at most every 10 years
@@ -68,6 +68,7 @@ export class Engine {
     this.curv = new Float64Array(x.length);
     this.level = new Float64Array(x.length);
     this.aggr = new Float64Array(x.length);  // bed built up (+) or scoured (-) by sediment, metres, per point
+    this.grain = null;          // gravel fraction of the bed surface per point (null until the budget first goes out of balance)
     this.sedPending = [];       // sediment dumped in the river this step: [{ x, y, volume }]
     this.sediment = { out: 0, exported: 0, trapped: 0, stored: 0, inflow: 0, fromWalls: 0, fromSlides: 0, fromGullies: 0, delta: 0, fromTributary: 0 };
     this.wash = null;           // fines passing each point, m^3/yr (null when there are none beyond the usual)
@@ -136,7 +137,7 @@ export class Engine {
       tickCount: this.tickCount,
       x: Float64Array.from(this.x), y: Float64Array.from(this.y), inletY: this.inletY,
       rate: Float64Array.from(this.rate), curv: Float64Array.from(this.curv), level: Float64Array.from(this.level),
-      aggr: Float64Array.from(this.aggr), sediment: { ...this.sediment }, q: this.q,
+      aggr: Float64Array.from(this.aggr), grain: this.grain ? Float64Array.from(this.grain) : null, sediment: { ...this.sediment }, q: this.q,
       wash: this.wash ? Float64Array.from(this.wash) : null, loadExcess: this.loadExcess, sedPending: this.sedPending.map((p) => ({ ...p })),
       oxbows: this.oxbows.map((o) => ({ ...o, x: o.x.slice(), y: o.y.slice(), cells: o.cells.slice() })),
       oxbowCount: this.oxbowCount,
@@ -181,6 +182,7 @@ export class Engine {
     this.inletY = st.inletY ?? st.y[0] - this.inletSwing(st.year); // older saves: carry on from where the inlet is
     this.rate = Float64Array.from(st.rate); this.curv = Float64Array.from(st.curv); this.level = Float64Array.from(st.level);
     this.aggr = st.aggr ? Float64Array.from(st.aggr) : new Float64Array(this.x.length);
+    this.grain = st.grain ? Float64Array.from(st.grain) : null;
     this.sedPending = (st.sedPending || []).map((p) => ({ x: p.x, y: p.y, bed: p.bed, fines: p.fines, from: p.from ?? null }));
     this.sediment = { out: 0, exported: 0, trapped: 0, stored: 0, inflow: 0, fromWalls: 0, fromSlides: 0, fromGullies: 0, delta: 0, fromTributary: 0, ...(st.sediment || {}) };
     this.wash = st.wash ? Float64Array.from(st.wash) : null;
@@ -502,6 +504,7 @@ export class Engine {
     // and as they slumped), and landslide and gully debris. Sand and gravel
     // join the bed load; fines are washed straight through.
     const L = new Float64Array(n), fines = new Float64Array(n);
+    const Lg = new Float64Array(n); // the gravel in L
     let sources = false;
     const wall = this.sedWall && this.sedWall.length === N ? this.sedWall : null;
     const bluff = this.sedBluff && this.sedBluff.length === N ? this.sedBluff : null;
@@ -512,6 +515,7 @@ export class Engine {
         const v = (wall ? wall[i] : 0) + (bluff ? bluff[i] / DT : 0);
         if (v <= 0) continue;
         L[i] += f * v; fines[i] += (1 - f) * v; total += v;
+        Lg[i] += GRAIN.walls * f * v;
         sources = true;
       }
       sed.fromWalls += total * DT;
@@ -520,6 +524,7 @@ export class Engine {
     for (const p of this.sedPending) {
       const i = Math.min(n - 1, this.nearestPoint(p.x, p.y));
       L[i] += p.bed / DT; fines[i] += p.fines / DT;
+      Lg[i] += (p.from === 'fromSlides' ? GRAIN.slides : p.from === 'fromGullies' ? GRAIN.gullies : GRAIN.start) * p.bed / DT;
       if (p.from) sed[p.from] += p.bed + p.fines;
       sources = true;
     }
@@ -531,6 +536,7 @@ export class Engine {
       const j = this.trib.j;
       const load = TRIB.load * s.tributary * k * S[0];
       L[j] += load; fines[j] += 0.3 * load;
+      Lg[j] += GRAIN.tributary * load;
       sed.fromTributary += 1.3 * load * DT;
       sources = true;
       kf = new Float64Array(n - 1);
@@ -582,7 +588,14 @@ export class Engine {
         for (let i = Math.min(n - 1, this.nearestPoint(d.x, d.y)), c = 0; c < m; i--, c++) width[i] = W + extra;
       }
     }
+    // Gravelly (armoured) beds carry less, sandy ones more.
+    if (!this.grain || this.grain.length !== N) this.grain = new Float64Array(N).fill(GRAIN.start);
+    const grain = this.grain;
+    const kg = new Float64Array(n - 1);
+    for (let f = 0; f < n - 1; f++) kg[f] = (typeof kf === 'number' ? kf : kf[f]) * (1 + GRAIN.hiding * (GRAIN.start - grain[f]));
+    kf = kg;
     const z = n === N ? this.aggr : this.aggr.subarray(0, n);
+    const z0 = Float64Array.from(z);
     const res = solveBed({ z, k: kf, S: n === N ? S : S.subarray(0, n - 1), L, pool, zMin, zMax, inflow, dt: DT, width, ds, porosity: SEDIMENT.porosity });
     if (n < N) this.aggr.fill(0, n);
     sed.out = res.out;
@@ -597,6 +610,7 @@ export class Engine {
     }
     for (let f = n - 1; f < N; f++) carried[f] = inflow > 0 ? res.out / inflow : 1;
     this.loadRatio = carried;
+    this.sortGrain(z0, inflow, L, Lg, pool, kf, S, width, res.out, n);
     if (this.lake) { this.lake.pending += res.out * DT; sed.delta += res.out * DT; } else sed.exported += res.out * DT;
     let stored = 0, trapped = 0;
     for (let i = 0; i < n; i++) {
@@ -607,6 +621,37 @@ export class Engine {
     sed.stored = stored;
     sed.trapped = trapped;
     this.composeLevels();
+  }
+
+  // Downstream fining and armouring. March down the river with the gravel
+  // in the load: where the bed built up this step, gravel dropped first;
+  // where it was scoured, sand went first. The bed surface (an active layer
+  // activeLayer thick) mixes with what arrived or left.
+  sortGrain(z0, inflow, L, Lg, pool, kf, S, width, out, n) {
+    const ds = this.ds, por = SEDIMENT.porosity, la = GRAIN.activeLayer;
+    const z = this.aggr, g = this.grain;
+    let tIn = inflow, gIn = inflow * GRAIN.inflow;
+    for (let i = 0; i < n; i++) {
+      const T = tIn + L[i], G = Math.min(T, gIn + Lg[i]);
+      const w = typeof width === 'number' ? width : width[i];
+      const fout = i < n - 1 ? (pool[i] ? 0 : Math.max(0, kf[i] * S[i] - (kf[i] / ds) * (z[i + 1] - z[i]))) : Math.max(0, out);
+      const p = T > 1e-9 ? G / T : g[i];
+      const dz = z[i] - z0[i];
+      const h = Math.min(la, Math.abs(dz));
+      let gOut;
+      if (dz >= 0) {
+        const gd = Math.min(1, p + GRAIN.sorting * p * (1 - p));
+        gOut = G - gd * dz * (1 - por) * w * ds / DT;
+        g[i] += (gd - g[i]) * (h / la);
+      } else {
+        const ge = g[i] * (1 - GRAIN.armour * (1 - g[i]));
+        gOut = G + ge * -dz * (1 - por) * w * ds / DT;
+        g[i] = (g[i] * la - ge * h + GRAIN.start * h) / la; // the scour reaches the mixed ground beneath
+      }
+      if (g[i] < 0) g[i] = 0; else if (g[i] > 1) g[i] = 1;
+      tIn = fout;
+      gIn = Math.max(0, Math.min(fout, gOut));
+    }
   }
 
   waterLevelAt(index) { return this.level[Math.min(index, this.level.length - 1)]; }
@@ -752,7 +797,9 @@ export class Engine {
       smooth(this.y, CENTRELINE.smoothingPasses);
     }
     this.clampToValley();
-    ({ x: this.x, y: this.y, fields: [this.aggr, this.sedWall] } = resample(this.x, this.y, ds, [this.aggr, wall]));
+    if (this.grain && this.grain.length === this.x.length) {
+      ({ x: this.x, y: this.y, fields: [this.aggr, this.sedWall, this.grain] } = resample(this.x, this.y, ds, [this.aggr, wall, this.grain]));
+    } else ({ x: this.x, y: this.y, fields: [this.aggr, this.sedWall] } = resample(this.x, this.y, ds, [this.aggr, wall]));
 
     // 4. Cutoffs (a braided river has no meander loops to cut off).
     const minSep = Math.round((CENTRELINE.minSeparationWidths * W) / ds);
@@ -824,6 +871,7 @@ export class Engine {
       dt: DT,
       cutting: this.incision > 0 || this.knickpoints.length > 0,
       wash: null,
+      grain: this.grain && this.grain.length === N ? cut(this.grain) : null,
     };
     if (this.wash && this.wash.length === N) {
       river.wash = new Float64Array(n);
@@ -1136,8 +1184,10 @@ export class Engine {
       return b;
     };
     const aggr = cut(this.aggr), wall = cut(this.sedWall);
+    const grain = this.grain && this.grain.length === this.x.length ? cut(this.grain) : null;
     this.x = out.x; this.y = out.y;
-    ({ x: this.x, y: this.y, fields: [this.aggr, this.sedWall] } = resample(this.x, this.y, this.ds, [aggr, wall]));
+    if (grain) ({ x: this.x, y: this.y, fields: [this.aggr, this.sedWall, this.grain] } = resample(this.x, this.y, this.ds, [aggr, wall, grain]));
+    else ({ x: this.x, y: this.y, fields: [this.aggr, this.sedWall] } = resample(this.x, this.y, this.ds, [aggr, wall]));
     this.addOxbow(out.loop, level, s.channelWidth, this.depth);
     this.events.push({ type, x: this.x[i], y: this.y[i], year: this.year });
   }
@@ -1415,6 +1465,16 @@ export class Engine {
       if (lo < 0 || this.aggr[i] < this.aggr[lo]) lo = i;
     }
     if (hi >= 0 && this.aggr[hi] > 0.5) out.push({ type: 'aggrading', x: this.x[hi], y: this.y[hi], level: this.level[hi] });
+    if (this.grain && this.grain.length === n) {
+      let gh = -1, gl = -1;
+      for (let i = CENTRELINE.endProtection; i < Math.min(n, this.active) - CENTRELINE.endProtection; i += 2) {
+        if (pool && pool[i]) continue;
+        if (gh < 0 || this.grain[i] > this.grain[gh]) gh = i;
+        if (gl < 0 || this.grain[i] < this.grain[gl]) gl = i;
+      }
+      if (gh >= 0 && this.grain[gh] > 0.72) out.push({ type: 'armoured', x: this.x[gh], y: this.y[gh], level: this.level[gh] });
+      if (gl >= 0 && this.grain[gl] < 0.3) out.push({ type: 'sandybed', x: this.x[gl], y: this.y[gl], level: this.level[gl] });
+    }
     if (lo >= 0 && this.aggr[lo] < -0.5) out.push({ type: 'scoured', x: this.x[lo], y: this.y[lo], level: this.level[lo] });
     if (pool) {
       for (let i = 0; i < n - 1; i++) {
@@ -1552,6 +1612,7 @@ export class Engine {
       sediment: {
         ...this.sediment,
         bed: Float32Array.from(this.aggr),
+        grain: this.grain && this.grain.length === n ? Float32Array.from(this.grain) : null,
         load: this.loadRatio && this.loadRatio.length === n ? Float32Array.from(this.loadRatio) : null,
         wash: this.wash && this.wash.length === n ? Float32Array.from(this.wash, (_, i) => this.washFactor(i)) : null,
       },
@@ -1590,7 +1651,7 @@ export class Engine {
       if (a < n) {
         const c = snap.centreline;
         for (const k of ['x', 'y', 'curvature', 'rate', 'level', 'depth', 'thalweg']) c[k] = c[k].slice(0, a);
-        for (const k of ['bed', 'load', 'wash']) if (snap.sediment[k]) snap.sediment[k] = snap.sediment[k].slice(0, a);
+        for (const k of ['bed', 'load', 'wash', 'grain']) if (snap.sediment[k]) snap.sediment[k] = snap.sediment[k].slice(0, a);
         if (snap.braid) for (const t of snap.braid.threads) { t.x = t.x.slice(0, a); t.y = t.y.slice(0, a); t.width = t.width.slice(0, a); }
       }
     }

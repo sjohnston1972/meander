@@ -133,6 +133,8 @@ export function validateState(state) {
 
   // Sediment (absent from saves made before the sediment budget).
   if (state.aggr !== undefined && (!finite(state.aggr) || state.aggr.length !== n0 || state.aggr.some((v) => v < -1000 || v > 1000))) fail('bed change');
+  if (state.grain !== undefined && state.grain !== null
+    && (!finite(state.grain) || state.grain.length !== n0 || state.grain.some((v) => v < 0 || v > 1))) fail('bed grain');
   if (state.wash !== undefined && state.wash !== null
     && (!finite(state.wash) || state.wash.length !== n0 || state.wash.some((v) => v < 0 || v > 1e12))) fail('muddy water');
   if (state.sediment !== undefined) {

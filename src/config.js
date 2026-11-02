@@ -259,6 +259,21 @@ export const SEDIMENT = {
   maxLoadExcess: 3,        // Auto braiding counts a load at most this many times what comes in from upstream
 };
 
+// --- Grain sorting (sand and gravel in the bed) ---
+export const GRAIN = {
+  start: 0.5,              // fraction of gravel in the bed surface to begin with, and in the ground beneath
+  inflow: 0.5,             // ... in what comes in from upstream
+  walls: 0.4,              // ... in what terrace and gorge walls shed
+  slides: 0.6,             // ... in landslide debris
+  gullies: 0.5,            // ... in what gullies wash out
+  tributary: 0.65,         // ... in what the tributary brings
+  sorting: 1,              // where the bed builds up, gravel drops first: deposit = p + this x p x (1 - p)
+  armour: 0.6,             // where it is scoured, sand goes first: eroded fraction = g x (1 - this x (1 - g))
+  activeLayer: 0.5,        // metres of bed surface that mixes with what arrives and leaves
+  hiding: 0.8,             // a bed of gravel fraction g carries (1 + this x (start - g)) times as much
+  gravelBars: 0.6,         // bars left behind on a bed with more gravel than this are gravel, else sand
+};
+
 // --- Lake at the valley's end (valleyEnd: 'lake') ---
 export const LAKE = {
   length: 1600,            // metres of valley at the downstream end under the lake, on average
@@ -609,6 +624,14 @@ export const EXPLANATIONS = {
   scoured: {
     title: 'Scoured reach',
     text: 'The river can carry more than reaches it here, so it picks up the difference from its own bed and cuts down, until it reaches bedrock.',
+  },
+  armoured: {
+    title: 'Armoured bed',
+    text: 'The river has carried off the sand here and left the gravel behind, a coarse armour that is hard to move. It happens where the river is starved of sediment, such as below a dam.',
+  },
+  sandybed: {
+    title: 'Sandy bed',
+    text: 'Gravel drops out first wherever the river slows and builds its bed up, so further down, and in lakes and deltas, the bed and the bars are sand.',
   },
   lakedelta: {
     title: 'Lake delta',
