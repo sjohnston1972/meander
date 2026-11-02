@@ -15,12 +15,14 @@ const CASES = [
   { name: 'seed 7, hard rock', settings: { seed: 7, hardRock: true }, ticks: 2000 },
   { name: 'incising, base drop', settings: { seed: 3, incisionRate: 6 }, ticks: 2400, drop: 1200 },
   { name: 'braided', settings: { seed: 4, ...PRESETS['Braided gravel river'] }, ticks: 1200 },
+  { name: 'gorge: landslides, dams, gullies', settings: { seed: 5, incisionRate: 20, alluviumDepth: 4 }, ticks: 12000, slide: 11000 },
 ];
 
 function runCase(EngineClass, base, fp, c) {
   const e = new EngineClass({ ...base, ...c.settings, quality: 'low' });
   for (let i = 0; i < c.ticks; i++) {
     if (c.drop === i) e.dropBaseLevel(2);
+    if (c.slide === i) e.triggerLandslide();
     e.tick();
   }
   return fp(e);
@@ -50,6 +52,7 @@ try {
         const e = new Engine({ ...defaults, ...c.settings, quality: 'low' });
         for (let i = 0; i < c.ticks; i++) {
           if (c.drop === i) e.dropBaseLevel(2);
+          if (c.slide === i) e.triggerLandslide();
           e.tick();
         }
         return fingerprint(e);

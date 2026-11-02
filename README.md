@@ -10,6 +10,7 @@ Live at **https://meander.clydeford.net**. Works in desktop browsers and on phon
 - Neck cutoffs leave oxbow lakes that slowly fill to marsh. Floods raise the water, leave levees and can cut chutes across point bars.
 - Point bars, scroll bars, cut banks, levees, vegetation and hard rock patches all appear on the floodplain.
 - Optional vertical erosion: set an incision rate, and the river cuts down while still meandering, leaving the old floodplain as terraces. Dropping the base level sends a knickpoint (a step in the bed, with white water) up the river. Below the alluvium lies bedrock, which erodes more slowly and shows in the walls. Terrace scarps and river bluffs slump to a stable slope.
+- Gorges: a river that cuts down keeps winding and cutting off loops, more slowly than on an open floodplain. Loops cut off while it is cutting down drain and are left hanging above it. The valley walls slump, creep rounds their rims, hard and soft rock layers step them into ledges, rock falls from steep faces onto scree, and side gullies cut back into the plateau with fans at their mouths. Tall walls fail in landslides (or on demand, with the Landslide button); debris that blocks a narrow gorge dams the river into a lake until the dam wears away or bursts in a flood.
 - Braided rivers: switch the channel pattern to Braided (or Auto, which braids steep, sediment-rich rivers) and the river spreads into shallow threads that split and rejoin across a wide gravel bed, shifting with every flood.
 - A grouped control panel changes flow, slope, bank strength, vegetation, floods and speed. Explain mode labels features and says how each one formed.
 - The same seed and settings always give the same river in every browser, and a link carries both. The engine uses its own arithmetic-only maths (`src/engine/dmath.js`) because browsers' built-in `Math.exp`, `Math.sin` and friends differ in their last bits.
@@ -36,6 +37,7 @@ Checks that need a browser:
 node scripts/determinism.mjs        # same rivers in Node, Chromium, Firefox and WebKit
 node scripts/shoot.mjs <label> --tod  # screenshots to docs/looks/ (see docs/looks/README.md)
 node scripts/shoot-phone.mjs <label>  # phone emulation screenshots and touch checks
+node scripts/shoot-gorge.mjs <label>  # an incising river at year 4000: walls, landslides, gullies, labels
 ```
 
 Add `?fresh` to the URL to skip resuming the autosaved river, and `?autoplay=0` to start paused.
@@ -86,6 +88,13 @@ Checked in Chrome on the live site unless noted. "Unit test" means `npm test` co
 - Close-up look: ripples sized in metres, fine ground detail, a closer bend camera, warmer dusk.
 - Phones and tablets.
 - Cross-browser determinism. Links made before 2026-11-02 replay with small differences, since every river shifted once in its last bits.
+
+## Changes in v1.2 (2026-11-02): gorges
+
+- Rivers in gorges keep winding: tall and rocky banks together slow migration to no less than 70% (it was as little as 20%, which froze the river in a straight slot). The river planes the bedrock it runs over.
+- Hanging (abandoned) meanders, landslides, landslide dams and lakes, outburst floods, gullies and fans, scree, soil creep and rock ledges (`src/engine/hillslope.js`, `src/engine/dams.js`). All of it runs only once the river has cut down, so a river on an open floodplain is unaffected.
+- The river's entry point swings slowly from side to side, as bends pass just upstream of the valley, so the first kilometre or so below the inlet winds instead of running dead straight. This changes every river: links made before this release replay differently.
+- Bedrock walls are coloured by layer; landslide lakes are drawn; Explain mode labels the new features.
 
 ## Future work
 
