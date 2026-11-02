@@ -41,8 +41,27 @@ try {
   await page.goto(`http://localhost:${PORT}/?autoplay=0&fresh#${hash}`);
   await page.waitForFunction(() => window.meander && window.meander.snapshot, null, { timeout: 60000 })
     .catch((err) => { console.error('[console errors]', errors); throw err; });
-  await page.evaluate((y) => window.meander.sim.step(y), YEARS);
-  await page.waitForFunction((y) => window.meander.snapshot.year >= y, YEARS, { timeout: 1800000, polling: 2000 });
+  // BUILD="straighten,weir,bridge": place those works at the sharpest bends halfway through.
+  const builds = (process.env.BUILD || '').split(',').filter(Boolean);
+  const first = builds.length ? Math.floor(YEARS / 2) : YEARS;
+  await page.evaluate((y) => window.meander.sim.step(y), first);
+  await page.waitForFunction((y) => window.meander.snapshot.year >= y, first, { timeout: 1800000, polling: 2000 });
+  if (builds.length) {
+    await page.evaluate((kinds) => {
+      const c = window.meander.snapshot.centreline, n = c.x.length;
+      const idx = [];
+      for (let i = Math.floor(n * 0.15); i < Math.floor(n * 0.85); i++) idx.push(i);
+      idx.sort((a, b) => Math.abs(c.curvature[b]) - Math.abs(c.curvature[a]));
+      const used = [];
+      for (const kind of kinds) {
+        const i = idx.find((k) => used.every((u) => Math.abs(u - k) > 60));
+        used.push(i);
+        window.meander.sim.build(kind, c.x[i], c.y[i]);
+      }
+    }, builds);
+    await page.evaluate((y) => window.meander.sim.step(y), YEARS - first);
+    await page.waitForFunction((y) => window.meander.snapshot.year >= y, YEARS, { timeout: 1800000, polling: 2000 });
+  }
   await page.waitForTimeout(2000);
   if (!process.env.SHOW_PANEL) await page.evaluate(() => { window.meander.controls.gui.domElement.style.display = 'none'; });
   const info = await page.evaluate(() => {

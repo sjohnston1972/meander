@@ -93,3 +93,13 @@ river at year 2500, now carrying a sediment budget.
 | Water clouded where the river carries fines from walls, landslides and gullies (it only gets muddier downstream, and clears below a landslide lake) | `-1-overview`, `-2-oblique` |
 | Show, Sediment load: the river coloured by its load (clear blue: less than comes in from upstream; brown: more), and the budget in the corner | `-8-sediment` |
 | Explain labels for aggrading and scoured reaches and lake deltas | `-3-labels` |
+
+## 2026-11-02: v1.4-v1.6
+
+`node scripts/shoot-scene.mjs <label> "<link settings>" [years] [feature]` (set `BUILD=straighten,weir,...` to place works halfway through).
+
+- `v14-delta-*`: Valley end: Lake, year 250. The delta pushes out as a lobe with sandy fringes; distributaries; the river runs on across it.
+- `v14-trib-*`: Tributary 0.4, year 600. It winds and leaves its own oxbows; its fan is at the valley wall.
+- `v14-all-*`: lake, tributary, climate swings and the graphs panel together, year 1500.
+- `v15-wood-*`: a 22 m river with log jams and beavers, year 450.
+- `v16-works-*`: a straightened, stone-lined reach (the old bends left beside it) and a weir, year 400.
