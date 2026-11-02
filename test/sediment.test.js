@@ -1,10 +1,10 @@
 // The sediment budget: bed material carried down the river. Where more
 // arrives than the river can carry, the bed builds up; where less, it is
 // scoured; lakes trap it; the rest leaves the valley.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { solveBed } from '../src/engine/sediment.js';
 import { Engine } from '../src/engine/engine.js';
-import { defaults, DT, SEDIMENT } from '../src/config.js';
+import { defaults, DT, SEDIMENT, PRESETS, HILLS } from '../src/config.js';
 import { fingerprint } from './helpers.js';
 import { cellIndex } from '../src/engine/floodplain.js';
 
@@ -198,5 +198,67 @@ describe('what the load does to the river', () => {
     const starved = new Engine({ ...defaults, quality: 'low', sedimentSupply: 0 });
     run(starved, 300);
     expect(starved.findFeatures().some((f) => f.type === 'scoured')).toBe(true);
+  });
+
+  it('a river building its bed up never stands above its own banks', { timeout: LONG }, () => {
+    for (const settings of [{ sedimentSupply: 3 }, { ...PRESETS['Braided gravel river'] }]) {
+      const e = new Engine({ ...defaults, ...settings, quality: 'low' });
+      run(e, 150);
+      let over = 0;
+      for (let i = 10; i < e.x.length - 10; i += 5) {
+        const top = e.bankTop(i);
+        if (e.level[i] > top + 0.3) over++; // banks are sampled at a point and the river moves; before the cap it stood up to 4 m above them
+      }
+      expect(over).toBe(0);
+      expect(Math.max(...e.aggr)).toBeGreaterThan(0.2);
+    }
+  });
+});
+
+describe('sediment with knickpoints and lakes', () => {
+  const saved = { ...HILLS };
+  afterEach(() => Object.assign(HILLS, saved));
+
+  it('leaves a base-level drop as a step working up the river', { timeout: LONG }, () => {
+    const e = new Engine({ ...defaults, quality: 'low', seed: 2 });
+    run(e, 100);
+    e.dropBaseLevel(2);
+    run(e, 10);
+    expect(Math.abs(e.aggr[5])).toBeLessThan(0.05);
+    let step = 0;
+    for (let i = 1; i < e.x.length; i++) step = Math.max(step, e.level[i - 1] - e.level[i]);
+    expect(step).toBeGreaterThan(0.1);
+  });
+
+  it('a lake filled with sediment holds the water no higher than its dam', { timeout: LONG }, () => {
+    HILLS.damFailChance = 0;
+    const e = new Engine({ ...defaults, quality: 'low', incisionRate: 10 });
+    run(e, 300);
+    const twin = Engine.fromState(e.serialize()); // the same river with no dam
+    e.makeDam(Math.floor(e.x.length * 0.6), 1.2);
+    let worst = -Infinity;
+    for (let t = 0; t < 40 / DT && e.dams.length; t++) {
+      e.tick();
+      const d = e.dams[0];
+      if (!d) break;
+      const j = e.nearestPoint(d.x, d.y);
+      for (let i = 0; i <= j; i++) worst = Math.max(worst, e.level[i] - Math.max(d.crest, e.refLevel[i] + SEDIMENT.maxAggrade));
+      worst = Math.max(worst, e.level[j] - d.crest);
+    }
+    run(twin, 40);
+    expect(worst).toBeLessThan(0.3);
+    expect(e.level[3] - twin.level[3]).toBeLessThan(1.2 + 0.3); // the valley above rises by about the dam's height
+  });
+
+  it('a lake traps the fines too', { timeout: LONG }, () => {
+    HILLS.damFailChance = 0;
+    const e = new Engine({ ...defaults, quality: 'low', incisionRate: 10 });
+    run(e, 300);
+    e.makeDam(Math.floor(e.x.length * 0.6), 1.2);
+    e.addSediment(e.x[8], e.y[8], 0, 3e4);
+    e.tick();
+    const j = e.nearestPoint(e.dams[0].x, e.dams[0].y);
+    expect(e.washFactor(10)).toBeGreaterThan(1.2);
+    expect(e.washFactor(j + 10)).toBeLessThan(1.02); // only what the walls below the lake add
   });
 });

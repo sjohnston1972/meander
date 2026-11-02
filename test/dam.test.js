@@ -81,7 +81,7 @@ describe('landslide dams', () => {
     const e = new Engine({ ...defaults, quality: 'low', incisionRate: 10 });
     run(e, 300);
     e.makeDam(Math.floor(e.x.length * 0.6), 1.2);
-    run(e, 10); // a dam this small is also gone once its lake fills with sediment (about 17 years here)
+    run(e, 1); // a dam this small is soon buried as its lake fills with sediment (2-3 years here)
     expect(e.dams.length).toBe(1);
     run(e, 400);
     expect(e.dams.length).toBe(0);

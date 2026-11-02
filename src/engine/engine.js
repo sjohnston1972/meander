@@ -335,10 +335,17 @@ export class Engine {
     }
     const ref = new Float64Array(n);
     const knick = this.knickpoints.length > 0;
+    // The graded profile without knickpoint steps: what the sediment budget
+    // takes the river's slope from, so a step keeps working its way up the
+    // river instead of being smoothed out by the bed.
+    const graded = knick ? new Float64Array(n) : ref;
     for (let i = 0; i < n; i++) {
-      ref[i] = top - (arc[i] / total) * fall - this.incision - (knick ? this.knickLowering(total - arc[i]) : 0);
+      const g = top - (arc[i] / total) * fall - this.incision;
+      ref[i] = knick ? g - this.knickLowering(total - arc[i]) : g;
+      if (knick) graded[i] = g;
     }
     this.refLevel = ref;
+    this.gradedLevel = graded;
     this.composeLevels();
   }
 
@@ -352,10 +359,30 @@ export class Engine {
     for (let i = 0; i < n; i++) level[i] = ref[i] + this.aggr[i];
     for (const d of this.dams) {
       const j = this.nearestPoint(d.x, d.y);
-      d.natural = level[Math.min(n - 1, j + 1)];
+      const k = Math.min(n - 1, j + 1);
+      d.natural = ref[k] + Math.max(0, this.aggr[k]); // scour below a dam does not make it taller
       for (let i = j; i >= 0 && level[i] < d.crest; i--) level[i] = d.crest;
     }
     this.level = level;
+  }
+
+  // Height of the higher ground either side of the river at point i: the
+  // floodplain (or braidplain edge) the water cannot rise above.
+  bankTop(i) {
+    const n = this.x.length;
+    const W = this.settings.channelWidth;
+    const off = this.threads ? Math.max(W, this.threads.half + W / 2) : 0.9 * W;
+    const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
+    const tx = this.x[i1] - this.x[i0], ty = this.y[i1] - this.y[i0];
+    const l = hypot(tx, ty) || 1;
+    const nx = ty / l, ny = -tx / l;
+    const g = this.grid;
+    let top = -Infinity;
+    for (const side of [1, -1]) {
+      const c = cellIndex(g, this.x[i] + nx * off * side, this.y[i] + ny * off * side);
+      if (!g.channel[c] && g.height[c] > top) top = g.height[c];
+    }
+    return top === -Infinity ? this.level[i] : top;
   }
 
   // Dump `bed` m^3 of sand and gravel and `fines` m^3 of silt and clay in
@@ -385,13 +412,14 @@ export class Engine {
     const s = this.settings;
     const n = this.x.length;
     const ds = this.ds;
-    const W = s.channelWidth;
+    const W = this.threads ? Math.max(s.channelWidth, 2 * this.threads.half) : s.channelWidth; // a braided river spreads its load over the braidplain
     const k = SEDIMENT.transport * Math.max(0, this.q);
     const ref = this.refLevel;
+    const graded = this.gradedLevel || ref;
     const S = new Float64Array(n - 1);
     for (let f = 0; f < n - 1; f++) {
       const l = hypot(this.x[f + 1] - this.x[f], this.y[f + 1] - this.y[f]) || ds;
-      S[f] = Math.max(0, (ref[f] - ref[f + 1]) / l);
+      S[f] = Math.max(0, (graded[f] - graded[f + 1]) / l);
     }
     const ratio = 1 + SEDIMENT.supplyCoupling * (s.sedimentSupply - 1);
     const inflow = ratio * k * S[0];
@@ -423,11 +451,13 @@ export class Engine {
       sources = true;
     }
     this.sedPending.length = 0;
-    // Fines are not dropped on the way: what passes each point has come in above it.
+    // Fines are not dropped on the way, except in a lake: what passes each
+    // point has come in above it, below the last lake.
+    const pool = this.dams.length ? this.pooledPoints() : new Uint8Array(n);
     if (sources) {
       const w = this.wash && this.wash.length === n ? this.wash : new Float64Array(n);
       let sum = 0;
-      for (let i = 0; i < n; i++) { sum += fines[i]; w[i] = sum; }
+      for (let i = 0; i < n; i++) { sum = pool[i] ? 0 : sum + fines[i]; w[i] = sum; }
       this.wash = w;
     } else this.wash = null;
     let busy = sources || ratio !== 1 || this.knickpoints.length > 0 || this.dams.length > 0;
@@ -441,16 +471,31 @@ export class Engine {
       sed.stored = 0;
       return;
     }
-    const pool = this.dams.length ? this.pooledPoints() : new Uint8Array(n);
-    const zMin = new Float64Array(n), zMax = new Float64Array(n).fill(SEDIMENT.maxAggrade);
+    const zMin = new Float64Array(n), zMax = new Float64Array(n);
     const g = this.grid;
     const D = this.depth;
     for (let i = 0; i < n; i++) {
       const rock = g.bedrock[cellIndex(g, this.x[i], this.y[i])] - (ref[i] - D); // bedrock relative to the reference bed
       zMin[i] = Math.min(this.aggr[i], Math.max(-SEDIMENT.maxScour, rock));
-      if (pool[i]) zMax[i] = Math.max(this.aggr[i], this.level[i] - ref[i] + D); // a delta builds up to the lake surface
+      // The bed builds up no faster than its banks: the water stays below the
+      // higher bank (the floodplain beside it, which rises too). A delta
+      // builds up until the river runs at the lake surface over it.
+      const cap = pool[i] ? this.level[i] - ref[i] : Math.min(SEDIMENT.maxAggrade, this.bankTop(i) - ref[i]);
+      zMax[i] = Math.max(0, cap); // what stands above it passes on downstream
     }
-    const res = solveBed({ z: this.aggr, k, S, L, pool, zMin, zMax, inflow, dt: DT, width: W, ds, porosity: SEDIMENT.porosity });
+    // A landslide lake stores sediment over all the ground it floods, not just the channel.
+    let width = W;
+    if (this.dams.length) {
+      width = new Float64Array(n).fill(W);
+      const area = g.cell * g.cell;
+      for (const d of this.dams) {
+        let m = 0;
+        for (let i = Math.min(n - 1, this.nearestPoint(d.x, d.y)); i >= 0 && pool[i]; i--) m++;
+        const extra = m ? (d.cells.length * area) / (m * ds) : 0;
+        for (let i = Math.min(n - 1, this.nearestPoint(d.x, d.y)), c = 0; c < m; i--, c++) width[i] = W + extra;
+      }
+    }
+    const res = solveBed({ z: this.aggr, k, S, L, pool, zMin, zMax, inflow, dt: DT, width, ds, porosity: SEDIMENT.porosity });
     sed.out = res.out;
     // More load than comes in from upstream (walls, landslides) makes a river likelier to braid.
     this.loadExcess = inflow > 0 ? Math.min(SEDIMENT.maxLoadExcess, Math.max(1, res.out / inflow)) : 1;
@@ -464,9 +509,12 @@ export class Engine {
     carried[n - 1] = inflow > 0 ? res.out / inflow : 1;
     this.loadRatio = carried;
     sed.exported += res.out * DT;
-    const cellVolume = (1 - SEDIMENT.porosity) * W * ds;
     let stored = 0, trapped = 0;
-    for (let i = 0; i < n; i++) { stored += this.aggr[i] * cellVolume; if (pool[i] && this.aggr[i] > 0) trapped += this.aggr[i] * cellVolume; }
+    for (let i = 0; i < n; i++) {
+      const v = this.aggr[i] * (1 - SEDIMENT.porosity) * (typeof width === 'number' ? width : width[i]) * ds;
+      stored += v;
+      if (pool[i] && v > 0) trapped += v;
+    }
     sed.stored = stored;
     sed.trapped = trapped;
     this.composeLevels();

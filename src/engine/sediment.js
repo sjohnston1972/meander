@@ -15,7 +15,8 @@
 // bedrock stops being scoured is returned as `clipped` (m^3).
 //
 // `r` holds z, k, S (per face, n − 1), L (m^3/yr per point), pool, zMin,
-// zMax, inflow (m^3/yr), dt, width, ds, porosity. z is updated in place.
+// zMax, inflow (m^3/yr), dt, width (metres: a number, or one per point, e.g.
+// a lake wider than the channel), ds, porosity. z is updated in place.
 // Returns { out: m^3/yr leaving past the last point, clipped: m^3 }.
 const scratch = { n: 0 };
 
@@ -28,14 +29,20 @@ export function solveBed(r) {
     scratch.rhs = new Float64Array(n); scratch.c = new Float64Array(n); scratch.d = new Float64Array(n);
   }
   const { lower, diag, upper, rhs, c, d } = scratch;
-  const a = dt / ((1 - porosity) * width * ds);
+  const wide = typeof width !== 'number';
+  const w = (i) => (wide ? width[i] : width);
   const cond = k / ds;
+  // Face f (between points f and f + 1) carries k·S_f plus the bed-slope
+  // term; out of a lake point it carries nothing, and into one it carries
+  // the river's load without feeling the lake bed (a delta takes all it is given).
+  const flows = (f) => f >= 0 && f < n - 1 && !pool[f];
+  const condOf = (f) => (flows(f) && !pool[f + 1] ? cond : 0);
   for (let i = 0; i < n - 1; i++) {
-    const open = (f) => f >= 0 && f < n - 1 && !pool[f];
-    const cl = i > 0 && open(i - 1) ? cond : 0;
-    const cr = open(i) ? cond : 0;
-    const fin = i === 0 ? inflow : (cl ? k * S[i - 1] : 0);
-    const fout = cr ? k * S[i] : 0;
+    const a = dt / ((1 - porosity) * w(i) * ds);
+    const cl = i > 0 ? condOf(i - 1) : 0;
+    const cr = condOf(i);
+    const fin = i === 0 ? inflow : (flows(i - 1) ? k * S[i - 1] : 0);
+    const fout = flows(i) ? k * S[i] : 0;
     lower[i] = -a * cl;
     upper[i] = -a * cr;
     diag[i] = 1 + a * (cl + cr);
@@ -56,18 +63,18 @@ export function solveBed(r) {
   // downstream, and out of the valley if it gets that far. Scour stops at
   // bedrock (the river simply carries less).
   const f = n - 2;
-  const flux = !pool[f] ? k * S[f] - cond * (z[f + 1] - z[f]) : 0;
+  const flux = flows(f) ? k * S[f] - condOf(f) * (z[f + 1] - z[f]) : 0;
   let clipped = 0, passed = 0;
+  const vol = (i) => (1 - porosity) * w(i) * ds; // m^3 per metre of bed change at point i
   for (let i = 0; i < n - 1; i++) {
     if (z[i] > zMax[i]) {
-      const extra = z[i] - zMax[i];
+      const extra = (z[i] - zMax[i]) * vol(i);
       z[i] = zMax[i];
-      if (i < n - 2) z[i + 1] += extra; else passed += extra;
+      if (i < n - 2) z[i + 1] += extra / vol(i + 1); else passed += extra;
     } else if (z[i] < zMin[i]) {
-      clipped += zMin[i] - z[i];
+      clipped += (zMin[i] - z[i]) * vol(i);
       z[i] = zMin[i];
     }
   }
-  const cell = (1 - porosity) * width * ds;
-  return { out: flux + (passed * cell) / dt, clipped: clipped * cell };
+  return { out: flux + passed / dt, clipped };
 }

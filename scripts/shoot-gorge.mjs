@@ -90,6 +90,9 @@ try {
   }
   // The Sediment view: the river coloured by its load, and the budget readout.
   await page.evaluate(() => { const m = window.meander; m.settings.showSediment = true; m.controls.refresh(); m.water.setShowSediment(true); });
+  const y0 = await page.evaluate(() => window.meander.snapshot.year);
+  await page.evaluate(() => window.meander.sim.step(1)); // a fresh snapshot redraws the water and the readout
+  await page.waitForFunction((y) => window.meander.snapshot.year > y, y0, { timeout: 60000 });
   await page.keyboard.press('2');
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `docs/looks/${label}-gorge-8-sediment.png`, timeout: 180000, animations: 'disabled' });
