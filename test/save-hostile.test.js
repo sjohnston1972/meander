@@ -24,6 +24,22 @@ describe('hostile saves: the valley-end lake', () => {
   it('rejects a delta tally that is not a number', () => rejectsLake((s) => { s.sediment.delta = 'huge'; }));
 });
 
+describe('hostile saves: stretched courses', () => {
+  it('rejects a river course whose points are far apart', () => rejects((s) => {
+    s.x = s.x.slice(); s.y = s.y.slice();
+    for (let i = 1; i < s.x.length - 1; i += 2) s.y[i] = i % 4 === 1 ? 10 : 2990; // a zigzag across the valley
+  }));
+  it('rejects a tributary course zigzagging across the valley', () => {
+    const e = new Engine({ ...defaults, quality: 'low', tributary: 0.3 });
+    for (let i = 0; i < 8; i++) e.tick();
+    const st = e.serialize();
+    const n = 2000;
+    st.trib.x = Float64Array.from({ length: n }, (_, k) => 100 + k * 2);
+    st.trib.y = Float64Array.from({ length: n }, (_, k) => (k % 2 ? 2990 : 10));
+    expect(() => decodeSave(encodeSave(st))).toThrow();
+  });
+});
+
 describe('hostile saves', () => {
   it('rejects a river point outside the valley', () => rejects((s) => { s.x[0] = 1e300; }));
   it('rejects a river point far outside the valley', () => rejects((s) => { s.x[0] = -1e7; }));

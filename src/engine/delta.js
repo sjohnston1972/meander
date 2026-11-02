@@ -28,7 +28,9 @@ export function makeLake(grid, settings, level) {
       if (x < edge) continue;
       const i = cy * cols + cx;
       const t = Math.min(1, (x - edge) / (0.6 * (VALLEY.length - edge)));
-      const deep = LAKE.shoreDepth + (LAKE.depth - LAKE.shoreDepth) * t * t * (3 - 2 * t);
+      // A shallow margin shelving down over the first 150 m.
+      const shelf = Math.min(1, 0.15 + (0.85 * (x - edge)) / 150);
+      const deep = (LAKE.shoreDepth + (LAKE.depth - LAKE.shoreDepth) * t * t * (3 - 2 * t)) * shelf;
       height[i] = level - deep;
       base[i] = level + LAKE.plain;
       surface[i] = SURFACE.WATER;
@@ -44,18 +46,20 @@ export function makeLake(grid, settings, level) {
 
 // Lake cells built up to the water become delta land; a lake that has
 // fallen (base level dropped) leaves its shallows dry. Returns how many.
+// Returns { count: how many emerged, open: how many are still open water }.
 export function emerge(grid, cells, level) {
   const { height, base, surface, veg, channel } = grid;
-  let count = 0;
+  let count = 0, open = 0;
   for (const i of cells) {
-    if (channel[i] !== OPEN_LAKE || height[i] < level - 0.02) continue;
+    if (channel[i] !== OPEN_LAKE) continue;
+    if (height[i] < level - 0.02) { open++; continue; }
     channel[i] = 0;
     surface[i] = SURFACE.SAND;
     veg[i] = 0;
     base[i] = level + LAKE.plain;
     count++;
   }
-  return count;
+  return { count, open };
 }
 
 // Spread `volume` m^3 of deposit into the open lake in front of a mouth at
@@ -83,7 +87,7 @@ export function depositDelta(grid, x, y, dx, dy, volume, level) {
         if (d > R) continue;
         const ahead = d > 1e-6 ? (px * dx + py * dy) / d : 1;
         if (ahead < -0.2 && d > 1.5 * cell && round < 6) continue; // not behind the mouth, unless there is nowhere else
-        const w = exp(-d / LAKE.reach) * (0.3 + 0.7 * Math.max(0, ahead));
+        const w = exp(-d / LAKE.reach) * (0.5 + 0.5 * Math.max(0, ahead));
         cand.push(i, w);
         wsum += w;
       }

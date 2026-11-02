@@ -90,6 +90,7 @@ export class Engine {
     this.stats = newStats();    // history for the graphs
     this.sentStatsVersion = -1;
     this.lake = null;           // the lake at the valley's end and its delta (valleyEnd: 'lake')
+    this.sentLakeVersion = -1;
     this.mouth = x.length - 1;  // the river's last point above open water
     if (this.settings.valleyEnd === 'lake') this.lake = Engine.newLake(makeLake(this.grid, this.settings, this.depth));
     this.landDt = 0;
@@ -106,6 +107,7 @@ export class Engine {
       dists: (saved.dists || []).map((d) => ({ angle: d.angle, path: null })),
       distCells: saved.distCells ? Array.from(saved.distCells) : [],
       nextSwitch: saved.nextSwitch ?? -1,
+      across: saved.across === true,
       mask: null,
     };
     return lake;
@@ -121,14 +123,17 @@ export class Engine {
   get active() { return this.lake ? Math.min(this.x.length, this.mouth + 1) : this.x.length; }
 
   // The first centreline point over open lake water (never right at the inlet).
+  // A bend that brushes a bay beside the delta is still river: the mouth is
+  // where the last unbroken run of lake points begins.
   findMouth() {
     const n = this.x.length;
     if (!this.lake) return n - 1;
     const g = this.grid;
-    for (let i = 0; i < n; i++) {
-      if (g.channel[cellIndex(g, this.x[i], this.y[i])] === OPEN_LAKE) return Math.max(i, CENTRELINE.endProtection + 6);
-    }
-    return n - 1;
+    const wet = (i) => g.channel[cellIndex(g, this.x[i], this.y[i])] === OPEN_LAKE;
+    if (!wet(n - 1)) return n - 1; // the delta has reached the valley's end
+    let i = n - 1;
+    while (i > 0 && wet(i - 1)) i--;
+    return Math.max(i, CENTRELINE.endProtection + 6);
   }
 
   // The whole state as plain data and typed arrays (copies), for saving.
@@ -167,6 +172,7 @@ export class Engine {
       lake: this.lake ? {
         cells: this.lake.cells.slice(), pending: this.lake.pending, fines: this.lake.fines, deposited: this.lake.deposited,
         dists: this.lake.dists.map((d) => ({ angle: d.angle })), distCells: Int32Array.from(this.lake.distCells), nextSwitch: this.lake.nextSwitch,
+        across: !!this.lake.across,
       } : null,
       landDt: this.landDt,
       grid: {
@@ -244,6 +250,7 @@ export class Engine {
       stamp: new Uint32Array(n), stampId: 1, chanSeg: new Int32Array(n),
     };
     this.lake = st.lake ? Engine.newLake(Int32Array.from(st.lake.cells), st.lake) : null;
+    this.sentLakeVersion = -1;
     this.mouth = this.findMouth();
     this.trib = st.trib ? {
       x: Float64Array.from(st.trib.x), y: Float64Array.from(st.trib.y), entryX: st.trib.entryX, entryX0: st.trib.entryX0, entryY: st.trib.entryY,
@@ -416,7 +423,9 @@ export class Engine {
   computeLevels() {
     const s = this.settings;
     const arc = arcLength(this.x, this.y);
-    const total = arc[arc.length - 1] || 1;
+    // With a lake, the river's profile ends at the lake's surface at its mouth.
+    if (this.lake) this.mouth = this.findMouth();
+    const total = arc[this.lake ? Math.min(arc.length - 1, this.mouth) : arc.length - 1] || 1;
     const top = s.valleySlope * VALLEY.length + this.depth;
     const fall = s.valleySlope * VALLEY.length;
     const n = this.x.length;
@@ -431,8 +440,9 @@ export class Engine {
     // river instead of being smoothed out by the bed.
     const graded = knick ? new Float64Array(n) : ref;
     for (let i = 0; i < n; i++) {
-      const g = top - (arc[i] / total) * fall - this.incision;
-      ref[i] = knick ? g - this.knickLowering(total - arc[i]) : g;
+      const a = arc[i] < total ? arc[i] : total;
+      const g = top - (a / total) * fall - this.incision;
+      ref[i] = knick ? g - this.knickLowering(total - a) : g;
       if (knick) graded[i] = g;
     }
     this.refLevel = ref;
@@ -625,7 +635,6 @@ export class Engine {
     const z = n === N ? this.aggr : this.aggr.subarray(0, n);
     const z0 = Float64Array.from(z);
     const res = solveBed({ z, k: kf, S: n === N ? S : S.subarray(0, n - 1), L, pool, zMin, zMax, inflow, dt: DT, width, ds, porosity: SEDIMENT.porosity });
-    if (n < N) this.aggr.fill(0, n);
     sed.out = res.out;
     // More load than comes in from upstream (walls, landslides) makes a river likelier to braid.
     this.loadExcess = inflow > 0 ? Math.min(SEDIMENT.maxLoadExcess, Math.max(1, res.out / inflow)) : 1;
@@ -888,7 +897,8 @@ export class Engine {
 
     // 6. History for trails.
     if (this.year - this.lastHistoryYear >= CENTRELINE.trailInterval - 1e-9) {
-      this.history.push({ year: this.year, x: Float32Array.from(this.x), y: Float32Array.from(this.y) });
+      const a = this.active;
+      this.history.push({ year: this.year, x: Float32Array.from(this.x.subarray(0, a)), y: Float32Array.from(this.y.subarray(0, a)) });
       this.lastHistoryYear = this.year;
       const keep = Math.max(...CENTRELINE.trailAges) / CENTRELINE.trailInterval + 2;
       if (this.history.length > keep) this.history.splice(0, this.history.length - keep);
@@ -941,11 +951,88 @@ export class Engine {
     L.pending = 0; L.fines = 0;
     if (bulk > 0) {
       let left = 0;
-      for (const m of this.deltaMouths()) left += depositDelta(g, m.x, m.y, m.dx, m.dy, bulk * m.share, level);
+      // Once the delta has crossed the lake to the valley's end, the river
+      // runs on out of the valley: only its distributaries still feed the lake.
+      const across = this.mouth >= this.x.length - 1 && this.x[this.x.length - 1] >= VALLEY.length - 1;
+      if (across && !L.across) this.events.push({ type: 'deltaAcross', x: this.x[this.mouth], y: this.y[this.mouth], year: this.year });
+      L.across = across;
+      this.deltaMouths().forEach((m, k) => {
+        if (across && k === 0) left += bulk * m.share;
+        else left += depositDelta(g, m.x, m.y, m.dx, m.dy, bulk * m.share, level);
+      });
       L.deposited += bulk - left;
-      this.sediment.exported += left * (1 - SEDIMENT.porosity); // the lake is full there: it goes on out of the valley
-      emerge(g, L.cells, level);
+      // Where the lake is full it goes on out of the valley instead.
+      const over = Math.min(left * (1 - SEDIMENT.porosity), this.sediment.delta);
+      this.sediment.exported += over;
+      this.sediment.delta -= over;
     }
+    L.open = emerge(g, L.cells, level).open;
+    this.relayCourse();
+  }
+
+  // The river's line beyond its mouth runs on across the open water the way
+  // the delta is growing now, so as the mouth advances the river lengthens
+  // that way, now to one side, now the other: the delta grows as a fan.
+  relayCourse() {
+    const N = this.x.length;
+    const m = Math.min(N - 1, this.findMouth()); // the river's end, if it no longer reaches open water
+    if (m < 2) return;
+    const g = this.grid;
+    const ds = this.ds;
+    const W = this.settings.channelWidth;
+    // Across any delta plain still between it and the water (at most 400 m),
+    // then over open water until it would reach land again. If the way the
+    // water heads now finds none, try turning towards the middle of the lake.
+    const trace = (ux, uy) => {
+      const xs = [], ys = [];
+      let px = this.x[m], py = this.y[m], wet = false;
+      for (let k = 0; k < 600; k++) {
+        px += ux * ds; py += uy * ds;
+        if (px > VALLEY.length) px = VALLEY.length;
+        if (py < W) py = W; else if (py > VALLEY.width - W) py = VALLEY.width - W;
+        const open = g.channel[cellIndex(g, px, py)] === OPEN_LAKE;
+        if (!open && wet) break;
+        if (!open && (k + 1) * ds > 400) return null; // no open water ahead
+        wet = wet || open;
+        xs.push(px); ys.push(py);
+        if (px >= VALLEY.length) break;
+      }
+      return wet && xs.length >= CENTRELINE.endProtection + 2 ? { xs, ys } : null;
+    };
+    let line = null;
+    for (const turn of [0, 0.5, -0.5, 1, -1]) {
+      const [ux, uy] = this.mouthDirection(turn);
+      line = trace(ux, uy);
+      if (line) break;
+    }
+    if (!line) return;
+    const { xs, ys } = line;
+    const n = m + 1 + xs.length;
+    const nx = new Float64Array(n), ny = new Float64Array(n);
+    nx.set(this.x.subarray(0, m + 1)); ny.set(this.y.subarray(0, m + 1));
+    nx.set(xs, m + 1); ny.set(ys, m + 1);
+    const grow = (a, fill) => {
+      if (!a || a.length !== N) return a;
+      const b = new Float64Array(n).fill(fill);
+      b.set(a.subarray(0, m + 1));
+      return b;
+    };
+    this.aggr = grow(this.aggr, 0);
+    this.grain = grow(this.grain, GRAIN.start);
+    this.sedWall = grow(this.sedWall, 0);
+    this.wash = grow(this.wash, 0);
+    this.loadRatio = grow(this.loadRatio, 1);
+    this.x = nx; this.y = ny;
+    this.computeLevels();
+  }
+
+  // Which way the water leaving the river's mouth heads: down the valley,
+  // turned now one way, now the other, as bars at the mouth come and go, so
+  // the delta grows as a fan rather than a finger.
+  mouthDirection(extra = 0) {
+    if (!this.mouthNoise) this.mouthNoise = createNoise2D(this.settings.seed * 52361 + 7);
+    const swing = ((2 * this.mouthNoise(this.year / LAKE.mouthSwingYears, 0.71) - 1) * 1.6 * LAKE.mouthSwing * Math.PI) / 180 + extra;
+    return [cos(swing), sin(swing)];
   }
 
   // Where the delta takes the river's load: the main mouth, and the mouth
@@ -953,16 +1040,9 @@ export class Engine {
   deltaMouths() {
     const n = this.x.length;
     const m = Math.min(n - 1, this.mouth);
-    const dx = this.x[m] - this.x[m - 1], dy = this.y[m] - this.y[m - 1];
-    const l = hypot(dx, dy) || 1;
     const live = this.lake.dists.filter((d) => d.path);
-    // Bars at the mouth turn the water now one way, now the other, so the
-    // delta grows as a fan rather than a finger.
-    if (!this.mouthNoise) this.mouthNoise = createNoise2D(this.settings.seed * 52361 + 7);
-    const swing = ((2 * this.mouthNoise(this.year / LAKE.mouthSwingYears, 0.71) - 1) * 1.6 * LAKE.mouthSwing * Math.PI) / 180;
-    const c = cos(swing), sn = sin(swing);
-    const ux = dx / l, uy = dy / l;
-    const out = [{ x: this.x[m], y: this.y[m], dx: ux * c - uy * sn, dy: ux * sn + uy * c, share: 1 - LAKE.distShare * live.length }];
+    const [dx, dy] = this.mouthDirection();
+    const out = [{ x: this.x[m], y: this.y[m], dx, dy, share: 1 - LAKE.distShare * live.length }];
     for (const d of live) {
       const p = d.path, k = p.x.length - 1;
       const ex = p.x[k] - p.x[k - 1], ey = p.y[k] - p.y[k - 1];
@@ -1002,8 +1082,12 @@ export class Engine {
     const l = hypot(dx, dy) || 1;
     const top = this.level[ap];
     const W = this.settings.channelWidth;
+    // Last year's channels silt up where this year's do not run.
+    abandonDistributary(g, L.distCells, level);
+    L.distCells = [];
     for (const d of L.dists) {
       d.path = traceDistributary(g, this.x[ap], this.y[ap], dx / l, dy / l, d.angle);
+      d.top = top;
       if (!d.path) continue;
       const cells = carveDistributary(g, d.path, W * LAKE.distWidth, LAKE.distDepth, (t) => top + (level - top) * t);
       for (const c of cells) L.distCells.push(c);
@@ -1481,7 +1565,7 @@ export class Engine {
     const r = TRIB.pushWidths * s.channelWidth;
     const prot = Math.max(1, CENTRELINE.endProtection);
     const push = TRIB.push * s.tributary;
-    for (let i = prot; i < n - prot; i++) {
+    for (let i = Math.max(prot, Math.min(t.j, n) - 2); i < Math.min(n, this.active) - prot; i++) {
       const ox = this.x[i] - jx, oy = this.y[i] - jy;
       if (ox > r || ox < -r || oy > r || oy < -r) continue;
       const d = Math.sqrt(ox * ox + oy * oy);
@@ -1912,7 +1996,7 @@ export class Engine {
         level: Float32Array.from(this.trib.level), width: tribWidth(this.settings),
       }] : []), ...(this.lake ? this.lake.dists.filter((d) => d.path).map((d) => {
         const m = d.path.x.length;
-        const top = this.level[Math.min(this.x.length - 1, Math.max(0, this.mouth - Math.floor(m / 3)))];
+        const top = d.top ?? this.lakeLevel;
         return { kind: 'distributary', x: Float32Array.from(d.path.x), y: Float32Array.from(d.path.y), width: this.settings.channelWidth * LAKE.distWidth,
           level: Float32Array.from({ length: m }, (_, k) => top + (this.lakeLevel - top) * (k / (m - 1)) + 0.02) };
       }) : [])],
@@ -1933,7 +2017,7 @@ export class Engine {
     this.sentStatsVersion = this.stats.version;
     if (this.lake) {
       this.sentLakeVersion = this.lake.version;
-      snap.sediment.lake = true;
+      snap.sediment.lake = this.lake.open !== 0 && !this.lake.across;
       snap.sediment.deltaVolume = this.lake.deposited;
       // Only the river down to its mouth: the rest of the line lies under the lake.
       const a = this.active;

@@ -149,6 +149,7 @@ async function start() {
       else if (ev.type === 'dryPeriod') toast(`A drier period begins in year ${yr}: less water and sediment`);
       else if (ev.type === 'tributary') toast('A tributary has joined the river');
       else if (ev.type === 'tribcutoff') toast(`The tributary has cut off a loop in year ${yr}`);
+      else if (ev.type === 'deltaAcross') toast(`In year ${yr} the delta reached the far end of the lake: the river now runs on out of the valley`);
       else if (ev.type === 'avulsion') toast(`The delta's distributaries have switched course in year ${yr}`);
       else if (ev.type === 'noWalls') toast('No valley wall is tall enough to give way yet. Turn up incision and let the river cut down');
     }

@@ -64,6 +64,35 @@ describe('valley-end lake', () => {
     expect(e.snapshot().channels.length).toBe(live.length);
   });
 
+  it('sends the lake to the renderer again after a reset on the same engine', () => {
+    const e = lake();
+    expect(e.snapshot().lake.cells).not.toBe(null);
+    e.reset({ ...defaults, quality: 'low' });
+    expect(e.snapshot().lake).toBe(null);
+    e.reset({ ...defaults, quality: 'low', valleyEnd: 'lake', seed: 2 });
+    expect(e.snapshot().lake.cells).not.toBe(null);
+  });
+
+  it('keeps its mouth where the river last meets open water, without flickering upstream', { timeout: LONG }, () => {
+    const e = lake();
+    let jumps = 0, last = e.mouth;
+    for (let i = 0; i < 2400; i++) {
+      e.tick();
+      if (e.mouth < last - 20) jumps++;
+      last = e.mouth;
+    }
+    expect(jumps).toBeLessThan(3);
+  });
+
+  it('once the delta reaches the far end, the river runs on out of the valley', { timeout: LONG }, () => {
+    const e = lake({ sedimentSupply: 2 });
+    for (let y = 0; y < 1500 && !e.lake.across; y += 25) run(e, 25);
+    expect(e.lake.across).toBe(true);
+    const out = e.sediment.exported;
+    run(e, 50);
+    expect(e.sediment.exported).toBeGreaterThan(out);
+  });
+
   it('falls with base level, leaving its shallows dry', { timeout: LONG }, () => {
     const e = run(lake(), 2);
     const open0 = openCells(e);

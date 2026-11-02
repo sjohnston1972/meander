@@ -382,7 +382,7 @@ export function createWater() {
     // The lake at the valley's end (its cells arrive once per river).
     const lake = snapshot.lake;
     if (lake) {
-      if (lake.cells && lake.version !== endLakeVersion) {
+      if (lake.cells) { // sent once per river (and again after a reset or a load)
         endLake.geometry.dispose();
         endLake.geometry = pondGeometry(lake.cells, snapshot.grid.cols, snapshot.grid.cell);
         endLakeVersion = lake.version;

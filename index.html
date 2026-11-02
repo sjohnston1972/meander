@@ -32,7 +32,8 @@
       #hud .sed:empty { display: none; }
       /* Graphs over time: dark chart surface, one series colour, text in text colours. */
       #graphs { --g-surface: rgba(26, 26, 25, 0.88); --g-text: #f0efec; --g-text2: #c3c2b7; --g-muted: #8f8d85; --g-series: #3987e5;
-        position: fixed; left: 16px; bottom: 56px; z-index: 6; display: none; width: 296px; max-width: calc(100vw - 32px); box-sizing: border-box;
+        position: fixed; left: 16px; top: 150px; z-index: 6; display: none; width: 296px; max-width: calc(100vw - 32px); box-sizing: border-box;
+        max-height: calc(100vh - 230px); overflow-y: auto;
         padding: 8px 12px 6px; border-radius: 8px; background: var(--g-surface); color: var(--g-text); font-size: 11px; line-height: 1.25; }
       #graphs.show { display: block; }
       #graphs .g-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
@@ -49,7 +50,7 @@
       #graphs .g-dot { fill: var(--g-series); stroke: #1a1a19; stroke-width: 2; vector-effect: non-scaling-stroke; }
       #graphs .g-hi, #graphs .g-lo { position: absolute; right: 0; width: 36px; text-align: right; font-size: 9px; color: var(--g-muted); font-variant-numeric: tabular-nums; pointer-events: none; }
       #graphs .g-hi { top: -1px; } #graphs .g-lo { bottom: -1px; }
-      body.touch #graphs { bottom: 72px; }
+      @media (max-width: 700px) { #graphs { top: 120px; left: 8px; } }
       #toasts { position: fixed; left: 56px; bottom: 16px; display: flex; flex-direction: column; gap: 6px; z-index: 6; pointer-events: none; }
       .toast { background: var(--panel); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 12px;
         font-size: 0.9rem; opacity: 0; transform: translateY(6px); transition: opacity 0.25s, transform 0.25s; }

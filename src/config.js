@@ -324,15 +324,15 @@ export const LAKE = {
   bay: 700,                // metres further down the valley the shore lies at the valley walls than in the middle
   shoreWobble: 150,        // metres the shore wanders either side of that
   shoreScale: 700,         // metres along the shore from one bay to the next point
-  shoreDepth: 3,           // metres of water just off the shore
-  depth: 14,               // metres of water at the far end
+  shoreDepth: 6,           // metres of water just off the shore
+  depth: 18,               // metres of water at the far end
   plain: 0.8,              // metres above the water the delta plain slowly builds up to
   topset: 0.2,             // metres above the water fresh delta deposits reach
   shallows: 1.5,           // deposits within this depth of the surface show as sand through the water
-  reach: 140,              // metres: deposits thin out over about this distance in front of a mouth
+  reach: 300,              // metres: deposits thin out over about this distance in front of a mouth
   mouthSwing: 55,          // degrees either side the water leaving a mouth swings to, as bars come and go
   mouthSwingYears: 40,     // years, roughly, for it to swing from one side to the other
-  spread: 260,             // metres around a mouth searched for open water first (further if none is left)
+  spread: 450,             // metres around a mouth searched for open water first (further if none is left)
   finesTrap: 0.5,          // fraction of the fines reaching the lake that settle in it
   distMinLength: 250,      // metres the delta must reach out into the lake before distributaries form
   distCount: 2,            // distributaries besides the main river

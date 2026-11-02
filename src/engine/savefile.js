@@ -6,7 +6,8 @@
 // { $ta: type, o: byte offset, n: length } into the data block. Infinity and
 // -Infinity (JSON cannot hold them) are written as { $num: 'inf' | '-inf' }.
 // Compression (gzip) is left to the caller, since it is async in browsers.
-import { QUALITY, VALLEY, HILLS, LAKE, WOOD, BEAVER, WORKS, defaults } from '../config.js';
+import { QUALITY, VALLEY, HILLS, LAKE, WOOD, BEAVER, WORKS, CENTRELINE, defaults } from '../config.js';
+import { tribWidth } from './tributary.js';
 import { sanitizeSettings } from '../settings.js';
 import { restoreStats } from './stats.js';
 
@@ -96,6 +97,20 @@ export function validateState(state) {
   const n0 = state.x?.length;
   if (!finite(state.x) || !finite(state.y) || state.y.length !== n0 || n0 < 16 || n0 > 50000) fail('centreline');
   if (!inside(state.x, state.y)) fail('centreline outside the valley');
+  // Points about as far apart as the engine spaces them, and a river no
+  // longer than a very winding one: a stretched course would take the engine
+  // hours to re-space.
+  const spaced = (xs, ys, maxSeg, maxLength) => {
+    let len = 0;
+    for (let k = 1; k < xs.length; k++) {
+      const dx = xs[k] - xs[k - 1], dy = ys[k] - ys[k - 1];
+      const d2 = dx * dx + dy * dy;
+      if (d2 > maxSeg * maxSeg) return false;
+      len += Math.sqrt(d2);
+    }
+    return len <= maxLength;
+  };
+  if (!spaced(state.x, state.y, 3 * s.channelWidth * CENTRELINE.spacingFactor + 1, 12 * (VALLEY.length + VALLEY.width))) fail('centreline spacing');
   if (state.inletY !== undefined && !num(state.inletY, 0, VALLEY.width)) fail('inlet');
   // rate and curvature are from before the last re-spacing, so their length may
   // differ (the engine checks before using them); the water level must match.
@@ -165,6 +180,7 @@ export function validateState(state) {
     if (!(L.cells instanceof Int32Array) || L.cells.length > n || L.cells.some((i) => i < 0 || i >= n)) fail('lake cells');
     if (!(L.distCells instanceof Int32Array) || L.distCells.length > n || L.distCells.some((i) => i < 0 || i >= n)) fail('distributary cells');
     if (!num(L.pending, 0, 1e12) || !num(L.fines, 0, 1e12) || !num(L.deposited, 0, 1e15) || !num(L.nextSwitch, -1, 1e9)) fail('lake');
+    if (L.across !== undefined && typeof L.across !== 'boolean') fail('lake');
     if (!Array.isArray(L.dists) || L.dists.length > LAKE.distCount || L.dists.some((d) => !num(d?.angle, -Math.PI, Math.PI))) fail('distributaries');
   } else if (s.valleyEnd === 'lake') fail('lake');
 
@@ -172,6 +188,7 @@ export function validateState(state) {
   if (state.trib !== undefined && state.trib !== null) {
     const t = state.trib;
     if (!finite(t.x) || !finite(t.y) || t.x.length !== t.y.length || t.x.length < 2 || t.x.length > 20000 || !inside(t.x, t.y)) fail('tributary course');
+    if (!spaced(t.x, t.y, 3 * tribWidth(s) * CENTRELINE.spacingFactor + 1, 6 * (VALLEY.length + VALLEY.width))) fail('tributary spacing');
     if (!num(t.entryX, 0, VALLEY.length) || !num(t.entryX0, 0, VALLEY.length) || !num(t.entryY, 0, VALLEY.width) || (t.side !== 1 && t.side !== -1)) fail('tributary entry');
     if (!Number.isInteger(t.j) || t.j < 0 || t.j >= n0 || !num(t.age, 0, 1e9)) fail('tributary junction');
     if (t.dams !== undefined) {
