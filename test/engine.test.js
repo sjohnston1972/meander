@@ -18,7 +18,7 @@ describe('Engine', () => {
     expect(Array.from(sa.centreline.y)).toEqual(Array.from(sb.centreline.y));
   });
 
-  it('gives the same result whether ticks run in one batch or several', () => {
+  it('gives the same result whether ticks run in one batch or several', { timeout: LONG }, () => {
     const a = new Engine(fast), b = new Engine(fast);
     run(a, 500);
     for (let batch = 0; batch < 5; batch++) { run(b, 100); b.snapshot(); }

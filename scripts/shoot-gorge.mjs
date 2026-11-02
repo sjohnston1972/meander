@@ -88,6 +88,14 @@ try {
     await page.waitForTimeout(1500);
     await page.screenshot({ path: `docs/looks/${label}-gorge-${name}.png`, timeout: 180000, animations: 'disabled' });
   }
+  // The Sediment view: the river coloured by its load, and the budget readout.
+  await page.evaluate(() => { const m = window.meander; m.settings.showSediment = true; m.controls.refresh(); m.water.setShowSediment(true); });
+  await page.keyboard.press('2');
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `docs/looks/${label}-gorge-8-sediment.png`, timeout: 180000, animations: 'disabled' });
+  console.log('[gorge] sediment', await page.evaluate(() => document.getElementById('sed-hud').textContent));
+  await page.evaluate(() => { const m = window.meander; m.settings.showSediment = false; m.controls.refresh(); m.water.setShowSediment(false); });
+
   // The Landslide button.
   await page.evaluate(() => window.meander.sim.triggerLandslide());
   await page.evaluate(() => window.meander.sim.step(1));

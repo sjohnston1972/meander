@@ -11,6 +11,7 @@ Live at **https://meander.clydeford.net**. Works in desktop browsers and on phon
 - Point bars, scroll bars, cut banks, levees, vegetation and hard rock patches all appear on the floodplain.
 - Optional vertical erosion: set an incision rate, and the river cuts down while still meandering, leaving the old floodplain as terraces. Dropping the base level sends a knickpoint (a step in the bed, with white water) up the river. Below the alluvium lies bedrock, which erodes more slowly and shows in the walls. Terrace scarps and river bluffs slump to a stable slope.
 - Gorges: a river that cuts down keeps winding and cutting off loops, more slowly than on an open floodplain. Loops cut off while it is cutting down drain and are left hanging above it. The valley walls slump, creep rounds their rims, hard and soft rock layers step them into ledges, rock falls from steep faces onto scree, and side gullies cut back into the plateau with fans at their mouths. Tall walls fail in landslides (or on demand, with the Landslide button); debris that blocks a narrow gorge dams the river into a lake until the dam wears away or bursts in a flood.
+- A sediment budget: sand and gravel come in from upstream (the Sediment supply slider), from the banks and valley walls the river eats into, and from landslides and gullies. The river carries what it can, set by its flow and slope; where more arrives than it can carry, its bed and the floodplain beside it build up, and where less arrives it scours its bed down to bedrock. Landslide lakes trap it in deltas. The rest leaves the valley. Fine material clouds the water and builds levees faster. Turn on Show, Sediment load to colour the river by its load and see the budget.
 - Braided rivers: switch the channel pattern to Braided (or Auto, which braids steep, sediment-rich rivers) and the river spreads into shallow threads that split and rejoin across a wide gravel bed, shifting with every flood.
 - A grouped control panel changes flow, slope, bank strength, vegetation, floods and speed. Explain mode labels features and says how each one formed.
 - The same seed and settings always give the same river in every browser, and a link carries both. The engine uses its own arithmetic-only maths (`src/engine/dmath.js`) because browsers' built-in `Math.exp`, `Math.sin` and friends differ in their last bits.
@@ -96,9 +97,16 @@ Checked in Chrome on the live site unless noted. "Unit test" means `npm test` co
 - The river's entry point swings slowly from side to side, as bends pass just upstream of the valley, so the first kilometre or so below the inlet winds instead of running dead straight. This changes every river: links made before this release replay differently.
 - Bedrock walls are coloured by layer; landslide lakes are drawn; Explain mode labels the new features.
 
+## Changes in v1.3 (2026-11-02): sediment transport
+
+- Eroded material now goes somewhere. A one-dimensional sediment budget along the river (the Exner equation, solved implicitly each step in `src/engine/sediment.js`): the river can carry about transport × flow × slope; inputs from upstream, walls, landslides and gullies; the bed builds up or is scoured to match, never below bedrock and at most 4 m up (what a full bed cannot hold passes on); lakes trap it.
+- An aggrading bed lifts the floodplain beside it; muddy water (fines from walls, landslides and gullies) builds levees and floodplain silt faster and looks it; a heavily loaded river is likelier to braid on Auto; a river below a landslide dam runs clear and scours.
+- Show, Sediment load colours the river (clear blue: carrying less than comes in from upstream; brown: more) and shows sediment leaving the valley, built up in the bed and trapped in lakes. Explain mode labels aggrading and scoured reaches and lake deltas.
+- A river with the default Sediment supply (1) on an open floodplain is unchanged, bit for bit. Rivers that cut down, braided rivers and any other Sediment supply replay differently from links made before this release.
+
 ## Future work
 
-Man-made features such as bridges and embankments; knickpoints in braided rivers; sediment-transport braiding.
+Man-made features such as bridges and embankments; knickpoints in braided rivers; braid threads that respond to local bars rather than wandering by noise; a delta or fan beyond the valley outlet.
 
 ## Licence
 

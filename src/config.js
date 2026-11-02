@@ -247,6 +247,7 @@ export const SEDIMENT = {
   slideBedFraction: 0.7,   // ... of landslide debris
   washRef: 20000,          // m^3/yr of fines at mean flow that make the water noticeably cloudier (and levees grow twice as fast)
   floodplainWidths: 3,     // an aggrading bed lifts the floodplain this many channel widths either side of the river
+  floodplainEveryLand: 5,  // ... checked every this many land updates (years)
   maxWash: 4,              // levees and silt grow at most this many times faster in muddy water
   maxLoadExcess: 3,        // Auto braiding counts a load at most this many times what comes in from upstream
 };

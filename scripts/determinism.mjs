@@ -16,6 +16,8 @@ const CASES = [
   { name: 'incising, base drop', settings: { seed: 3, incisionRate: 6 }, ticks: 2400, drop: 1200 },
   { name: 'braided', settings: { seed: 4, ...PRESETS['Braided gravel river'] }, ticks: 1200 },
   { name: 'gorge: landslides, dams, gullies', settings: { seed: 5, incisionRate: 20, alluviumDepth: 4 }, ticks: 12000, slide: 11000 },
+  { name: 'overloaded with sediment', settings: { seed: 6, sedimentSupply: 3 }, ticks: 2400 },
+  { name: 'starved of sediment', settings: { seed: 8, sedimentSupply: 0.2 }, ticks: 2400 },
 ];
 
 function runCase(EngineClass, base, fp, c) {

@@ -12,7 +12,7 @@ import {
   migrationRate, migrate, findNeckCutoff, spliceCutoff, findChuteCutoff,
 } from './centreline.js';
 import {
-  createGrid, baseLevel, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth, cellIndex, setAlluvium, stampBraided,
+  createGrid, baseLevel, raiseFloodplain, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth, cellIndex, setAlluvium, stampBraided,
 } from './floodplain.js';
 import { relaxSlopes, findSlideSite, landslide, newGully, growGully } from './hillslope.js';
 import { fillPond } from './dams.js';
@@ -619,6 +619,8 @@ export class Engine {
     this.landDt += DT;
     this.tickCount++;
     if (this.tickCount % FLOODPLAIN.landEveryTicks === 0) {
+      // Beds build up slowly: lifting the floodplain every few years is enough.
+      if (this.tickCount % (FLOODPLAIN.landEveryTicks * SEDIMENT.floodplainEveryLand) === 0) raiseFloodplain(this.grid, this.x, this.y, this.aggr, this.refLevel, s);
       growLand(this.grid, s, this.landDt, this.flood, this.meanWash());
       if (this.incision > 0 || this.knickpoints.length) {
         this.spontaneousSlides(this.landDt); // first, so fresh debris slumps to a stable slope at once
@@ -657,9 +659,8 @@ export class Engine {
       level: this.level,
       dt: DT,
       cutting: this.incision > 0 || this.knickpoints.length > 0,
-      aggr: this.aggr, ref: this.refLevel, aggrading: false, wash: null,
+      wash: null,
     };
-    for (let i = 0; i < n && !river.aggrading; i++) if (this.aggr[i] > 0.05) river.aggrading = true;
     if (this.wash && this.wash.length === n) {
       river.wash = new Float64Array(n);
       for (let i = 0; i < n; i++) river.wash[i] = this.washFactor(i);

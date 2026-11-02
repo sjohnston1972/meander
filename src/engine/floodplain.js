@@ -200,13 +200,9 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
   const innerRamp = FLOODPLAIN.innerRampWidths * W;
   const cutBand = FLOODPLAIN.cutBankBandWidths * W;
   const leveeW = FLOODPLAIN.leveeWidthWidths * W;
-  // A bed built up by sediment lifts the floodplain beside it (river.aggr,
-  // metres per point, over the reference levels river.ref); muddy water
-  // (river.wash, a factor per point) builds levees faster.
-  const { aggr, ref, wash } = river;
-  const aggrading = !!aggr && river.aggrading;
-  const plainBand = aggrading ? halfW + SEDIMENT.floodplainWidths * W : 0;
-  const reach = halfW + Math.max(innerRamp, flood > 0 ? leveeW : 0, cutBand, plainBand - halfW);
+  // Muddy water (river.wash, a factor per point) builds levees faster.
+  const { wash } = river;
+  const reach = halfW + Math.max(innerRamp, flood > 0 ? leveeW : 0, cutBand);
   const { height, base, surface, veg, channel, chanLevel, lakeLost, bedrock } = grid;
 
   // Clear last step's river cells; remember them to detect abandoned ground.
@@ -220,14 +216,6 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
 
   forCellsNear(grid, x, y, reach, (i, u, t, s) => {
     const lvl = level[s] + (level[s + 1] - level[s]) * t;
-    if (aggrading) {
-      const z = aggr[s] + (aggr[s + 1] - aggr[s]) * t;
-      if (z > 0.05) {
-        const plain = ref[s] + (ref[s + 1] - ref[s]) * t + z - D + settings.bankHeight;
-        if (plain > base[i]) base[i] = plain;
-      }
-      if (Math.abs(u) > halfW + Math.max(innerRamp, flood > 0 ? leveeW : 0, cutBand)) return;
-    }
     const cv = c[s] + (c[s + 1] - c[s]) * t;
     const r = rate[s] + (rate[s + 1] - rate[s]) * t;
     const bend = Math.min(1, Math.abs(cv) * W * THALWEG.curvatureScale);
@@ -285,6 +273,31 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
     }
   }
   grid.chanList = list;
+}
+
+// A bed built up by sediment lifts the floodplain beside it: along every
+// reach where the bed stands above its reference level (aggr, metres per
+// point, over the reference water levels ref), the floodplain's target
+// height rises with it, out to floodplainWidths channel widths either side.
+// Low ground then builds up towards it (growLand).
+export function raiseFloodplain(grid, x, y, aggr, ref, settings) {
+  const n = x.length;
+  const W = settings.channelWidth, D = effectiveDepth(settings);
+  const band = W / 2 + SEDIMENT.floodplainWidths * W;
+  const { base } = grid;
+  for (let a = 0; a < n - 1; a++) {
+    if (aggr[a] <= 0.05 && aggr[a + 1] <= 0.05) continue;
+    let b = a + 1;
+    while (b < n - 1 && (aggr[b] > 0.05 || aggr[b + 1] > 0.05)) b++;
+    const sx = x.subarray(a, b + 1), sy = y.subarray(a, b + 1);
+    forCellsNear(grid, sx, sy, band, (i, u, t, s) => {
+      const z = aggr[a + s] + (aggr[a + s + 1] - aggr[a + s]) * t;
+      if (z <= 0.05) return;
+      const plain = ref[a + s] + (ref[a + s + 1] - ref[a + s]) * t + z - D + settings.bankHeight;
+      if (plain > base[i]) base[i] = plain;
+    });
+    a = b;
+  }
 }
 
 // Carve a braided reach: several shallow threads wandering across a wide
