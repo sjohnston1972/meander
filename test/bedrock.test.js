@@ -28,7 +28,8 @@ describe('bedrock under the alluvium', () => {
     e.grid.bedrock.fill(1e3); // rock right up to the surface
     const k1 = e.localErodibility(i);
     expect(k1).toBeLessThan(k0);
-    expect(k1).toBeCloseTo(k0 * CENTRELINE.bedrockBankFactor, 6);
+    // Rock alone would halve it, but no bank is slower than the gorge floor.
+    expect(k1).toBeCloseTo(k0 * Math.max(CENTRELINE.gorgeBankFloor, CENTRELINE.bedrockBankFactor), 6);
   });
 
   it('is unreached by a river that is not incising', { timeout: 60000 }, () => {

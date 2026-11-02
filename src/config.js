@@ -133,9 +133,10 @@ export const CENTRELINE = {
   depthBelowBank: 0.5,     // the channel is never deeper than bank height minus this (metres)
   knickCelerity: 5,        // m/yr a knickpoint (the step left by a base-level drop) travels upstream at mean flow
   knickLength: 250,        // metres of river over which a knickpoint's step is spread
-  bedrockBankFactor: 0.5,  // erodibility of the part of a bank that is bedrock, relative to alluvium
+  bedrockBankFactor: 0.5,  // erodibility of the part of a bank that is bedrock, relative to alluvium (with tall banks, never below gorgeBankFloor)
   baseLevelDrop: 2,        // metres per press of the "Drop base level" button
   minBankFactor: 0.4,      // erodibility floor for very tall banks (terrace edges); lower and an incising river freezes in a slot
+  gorgeBankFloor: 0.7,     // tall and rocky banks together slow migration to no less than this; lower and loops stop growing in a gorge
   bankHeightExponent: 0.25, // tall banks slow retreat as (normal/actual)^this; higher and an incising river straightens
   endProtection: 6,        // points at each end that never migrate or cut off
   wallMarginWidths: 8,     // erodibility fades to zero this many widths from the valley walls
@@ -155,7 +156,7 @@ export const QUALITY = {
   high:   { cols: 1024, rows: 512, shadowMap: 4096, trees: 16000, grass: 32000, particles: 5000 }, // 5.9 m cells, ~8 per channel width
 };
 
-export const SURFACE = { GRASS: 0, SAND: 1, EARTH: 2, WETLAND: 3, ROCK: 4, WATER: 5, MARSH: 6, GRAVEL: 7 };
+export const SURFACE = { GRASS: 0, SAND: 1, EARTH: 2, WETLAND: 3, ROCK: 4, WATER: 5, MARSH: 6, GRAVEL: 7, SCREE: 8 };
 
 export const FLOODPLAIN = {
   baseNoise: 0.4,          // metres of gentle random relief on the initial floodplain
@@ -186,8 +187,30 @@ export const FLOODPLAIN = {
   bedrockNoise: 2.5,       // metres the bedrock surface rises and falls about its mean depth
   bedrockScale: 500,       // metres, size of the bedrock highs and lows
   scarpSlope: 0.6,         // steepest stable slope (rise over run, about 31 degrees) of a terrace scarp in alluvium
-  rockScarpFactor: 1.8,    // bedrock walls stand this many times steeper (more and they read as one-cell cliffs)
   scarpPasses: 2,          // slumping passes per land update while the river is cutting down
+};
+
+// --- Valley walls (only while the river is cutting down) ---
+export const HILLS = {
+  softRockSlope: 0.8,      // steepest stable slope of soft bedrock layers (about 39 degrees)
+  hardRockSlope: 2.2,      // steepest stable slope of hard bedrock layers (about 65 degrees): they stand as cliffs
+  layerThickness: 18,      // metres from one hard layer to the next
+  hardFraction: 0.45,      // fraction of each layer that is hard rock
+  creep: 0.5,              // m^2/yr soil creep that rounds rims (about 20x real, so it shows within a few thousand years)
+  creepMinSlope: 0.05,     // gentler ground does not creep, so levees and scroll bars keep their shape
+  rockfall: 0.003,         // metres a year that rock faces steeper than soft rock shed onto the scree below
+  screeVegFactor: 0.3,     // plants colonise scree this fraction as fast as other ground
+  slideMinHeight: 10,      // metres: walls lower than this do not fail in landslides
+  slideSamples: 16,        // random ground cells checked for a failure each year
+  slideChance: 0.002,      // chance a checked cell on a wall slideMinHeight tall fails that year (taller walls fail more often)
+  slideFloodFactor: 3,     // landslides are this many times likelier during a flood
+  slideWidth: 0.8,         // half-width of the scar, in wall heights (clamped to 1.5 to 6 cells)
+  slideBack: 0.5,          // the scar reaches this many wall heights back behind the rim
+  slideRunout: 1.5,        // the debris runs out this many wall heights beyond the foot of the wall
+  slideKeep: 0.95,         // fraction of the failed mass left as debris (the rest is fines carried away)
+  slidePush: 3,            // m/yr the river is pushed away from debris that reaches it, fading over slidePushYears
+  slidePushYears: 30,
+  slideMarks: 8,           // recent landslide scars remembered for Explain labels
 };
 
 // --- Braided rivers ---
@@ -254,6 +277,7 @@ export const RENDER = {
     5: 0x2b4f5a,           // WATER (channel and lake bed, seen through the water)
     6: 0x6f8a4a,           // MARSH
     7: 0xa49b89,           // GRAVEL (braid bars)
+    8: 0x9a8c78,           // SCREE (rock debris at the foot of walls)
   },
   treeColour: 0x2f5d2a,
   trunkColour: 0x5a4030,

@@ -1,9 +1,10 @@
 // The simulation engine. Owns the river centreline, the oxbows and the
 // floodplain grid, advances them one fixed time step per tick(), and hands out
 // snapshots for the renderer. Pure JavaScript; never touches three.js.
-import { VALLEY, DT, CENTRELINE, FLOODS, FLOODPLAIN, THALWEG, RENDER, SURFACE, BRAID } from '../config.js';
+import { VALLEY, DT, CENTRELINE, FLOODS, FLOODPLAIN, THALWEG, RENDER, SURFACE, BRAID, HILLS } from '../config.js';
 
 const RENDER_FEATURE_TICKS = RENDER.featureEveryTicks;
+const BEDROCK_SEND_TICKS = 40; // at most every 10 years
 import { createRandom, createNoise2D } from './random.js';
 import { SAVE_VERSION } from './savefile.js';
 import {
@@ -11,8 +12,9 @@ import {
   migrationRate, migrate, findNeckCutoff, spliceCutoff, findChuteCutoff,
 } from './centreline.js';
 import {
-  createGrid, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth, cellIndex, setAlluvium, relaxSlopes, stampBraided,
+  createGrid, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth, cellIndex, setAlluvium, stampBraided,
 } from './floodplain.js';
+import { relaxSlopes, findSlideSite, landslide } from './hillslope.js';
 import { exp, pow, hypot } from './dmath.js';
 
 export class Engine {
@@ -44,6 +46,8 @@ export class Engine {
     this.braidTime = 0;         // noise time that moves the braid threads about
     this.braidNoise = createNoise2D(this.settings.seed * 48271 + 5);
     this.threads = null;        // { offsets[k][i], width, half } while braided
+    this.slides = [];           // landslide debris pushing the river: [{ x, y, dirx, diry, width, age }]
+    this.slideMarks = [];       // recent landslide scars, for labels: [{ x, y, year }]
     this.rate = new Float64Array(x.length);
     this.curv = new Float64Array(x.length);
     this.level = new Float64Array(x.length);
@@ -74,6 +78,7 @@ export class Engine {
       discharge: this.discharge, yearDischargeAt: this.yearDischargeAt,
       incision: this.incision, knickpoints: this.knickpoints.map((k) => ({ ...k })),
       braid: this.braid, braidTime: this.braidTime,
+      slides: this.slides.map((v) => ({ ...v })), slideMarks: this.slideMarks.map((v) => ({ ...v })),
       landDt: this.landDt,
       grid: {
         cols: g.cols, rows: g.rows, cell: g.cell, slope: g.slope, bankHeight: g.bankHeight,
@@ -107,6 +112,8 @@ export class Engine {
     this.braidTime = st.braidTime ?? 0;
     this.braidNoise = createNoise2D(this.settings.seed * 48271 + 5);
     this.threads = null;
+    this.slides = (st.slides || []).map((v) => ({ x: v.x, y: v.y, dirx: v.dirx, diry: v.diry, width: v.width, age: v.age }));
+    this.slideMarks = (st.slideMarks || []).map((v) => ({ x: v.x, y: v.y, year: v.year }));
     this.landDt = st.landDt;
     const g = st.grid;
     const n = g.cols * g.rows;
@@ -322,7 +329,11 @@ export class Engine {
     // river that is not, a bank can look tall just because the water profile
     // follows the river's length while the floodplain follows the valley.
     const tall = this.incision > 0 || this.knickpoints.length ? Engine.bankFactor(actualBank, s.bankHeight) : 1;
-    return wall * exit * ground * rock * tall;
+    // Tall and rocky banks together never slow the river below gorgeBankFloor:
+    // their faces keep failing (slumps, landslides) and the river carries the
+    // debris away, so an entrenched river still winds and cuts off loops.
+    const gorge = rock * tall < 1 ? Math.max(CENTRELINE.gorgeBankFloor, rock * tall) : 1;
+    return wall * exit * ground * gorge;
   }
 
   updateDischarge() {
@@ -377,6 +388,7 @@ export class Engine {
     const noise = CENTRELINE.bankNoise * base;
     for (let i = prot; i < n - prot; i++) rate[i] += noise * this.rng.gaussian() * (k[i] / base || 0);
     this.bankCollapses(rate, k, base);
+    if (this.slides.length) this.pushFromSlides(rate);
     this.rate = rate;
 
     // 3. Move, re-space.
@@ -410,8 +422,16 @@ export class Engine {
     this.tickCount++;
     if (this.tickCount % FLOODPLAIN.landEveryTicks === 0) {
       growLand(this.grid, s, this.landDt, this.flood);
-      if (this.incision > 0 || this.knickpoints.length) relaxSlopes(this.grid, s);
+      if (this.incision > 0 || this.knickpoints.length) {
+        relaxSlopes(this.grid, s, this.landDt);
+        this.spontaneousSlides(this.landDt);
+      }
       this.landDt = 0;
+    }
+    // Rock planed under the river: tell the renderer now and then, not every step.
+    if (this.grid.bedrockDirty && this.tickCount % BEDROCK_SEND_TICKS === 0) {
+      this.grid.bedrockDirty = false;
+      this.grid.bedrockVersion++;
     }
 
     if (this.tickCount % RENDER_FEATURE_TICKS === 0) this.features = this.findFeatures();
@@ -438,6 +458,68 @@ export class Engine {
     };
     if (this.threads) stampBraided(this.grid, river, this.threads, this.settings, this.flood);
     else stampChannel(this.grid, river, this.settings, this.year, this.flood);
+  }
+
+  // Tall valley walls fail now and then: a few random ground cells are
+  // checked each land update, and a tall wall under one may give way (taller
+  // walls, and floods, make it likelier).
+  spontaneousSlides(dt) {
+    const g = this.grid;
+    const n = g.height.length;
+    const flood = 1 + (HILLS.slideFloodFactor - 1) * this.flood;
+    for (let k = 0; k < HILLS.slideSamples; k++) {
+      const site = findSlideSite(g, this.rng.int(n));
+      if (site && this.rng.chance(HILLS.slideChance * dt * flood * (site.height / HILLS.slideMinHeight))) this.slide(site);
+    }
+  }
+
+  // The Landslide button: fail the tallest wall among a few hundred looked at.
+  // Returns false when there is no wall tall enough.
+  triggerLandslide() {
+    const g = this.grid;
+    let best = null;
+    for (let k = 0; k < 400; k++) {
+      const site = findSlideSite(g, this.rng.int(g.height.length));
+      if (site && (!best || site.height > best.height)) best = site;
+    }
+    if (!best) return false;
+    this.slide(best);
+    return true;
+  }
+
+  slide(site) {
+    const rec = landslide(this.grid, this.settings, site, this.rng);
+    this.events.push({ type: 'landslide', x: rec.footX, y: rec.footY, year: this.year, volume: rec.volume });
+    this.slideMarks.push({ x: rec.x, y: rec.y, year: this.year });
+    if (this.slideMarks.length > HILLS.slideMarks) this.slideMarks.shift();
+    if (rec.intoRiver > 0) {
+      this.slides.push({ x: rec.footX + rec.dirx * rec.runout * 0.5, y: rec.footY + rec.diry * rec.runout * 0.5, dirx: rec.dirx, diry: rec.diry, width: rec.width, age: 0 });
+    }
+    return rec;
+  }
+
+  // Debris in the river pushes the channel away from the slide, fading as
+  // the river carries it off.
+  pushFromSlides(rate) {
+    const n = this.x.length;
+    const prot = CENTRELINE.endProtection;
+    for (let k = this.slides.length - 1; k >= 0; k--) {
+      const sl = this.slides[k];
+      const fade = 1 - sl.age / HILLS.slidePushYears;
+      sl.age += DT;
+      if (fade <= 0) { this.slides.splice(k, 1); continue; }
+      const r = sl.width;
+      for (let i = Math.max(1, prot); i < n - Math.max(1, prot); i++) {
+        const dx = this.x[i] - sl.x, dy = this.y[i] - sl.y;
+        if (dx > r || dx < -r || dy > r || dy < -r) continue;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d >= r) continue;
+        const tx = this.x[i + 1] - this.x[i - 1], ty = this.y[i + 1] - this.y[i - 1];
+        const l = hypot(tx, ty) || 1;
+        const along = (ty / l) * sl.dirx - (tx / l) * sl.diry; // right-hand normal . push direction
+        rate[i] += HILLS.slidePush * fade * (1 - d / r) * along;
+      }
+    }
   }
 
   // Undercut banks occasionally fail: a chunk falls in, plants are stripped.

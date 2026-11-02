@@ -2,7 +2,7 @@
 // type, an erodibility multiplier and a vegetation value. The channel is carved
 // into it every step; land the channel leaves behind becomes point bar; floods
 // build levees; low ground slowly rises back to floodplain level.
-import { VALLEY, QUALITY, SURFACE, FLOODPLAIN, THALWEG, CENTRELINE, BRAID } from '../config.js';
+import { VALLEY, QUALITY, SURFACE, FLOODPLAIN, THALWEG, CENTRELINE, BRAID, HILLS } from '../config.js';
 import { createNoise2D } from './random.js';
 import { sin, hypot } from './dmath.js';
 
@@ -200,7 +200,7 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
   const cutBand = FLOODPLAIN.cutBankBandWidths * W;
   const leveeW = FLOODPLAIN.leveeWidthWidths * W;
   const reach = halfW + Math.max(innerRamp, flood > 0 ? leveeW : 0, cutBand);
-  const { height, base, surface, veg, channel, chanLevel, lakeLost } = grid;
+  const { height, base, surface, veg, channel, chanLevel, lakeLost, bedrock } = grid;
 
   // Clear last step's river cells; remember them to detect abandoned ground.
   const prevList = grid.chanList;
@@ -227,6 +227,7 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
       const h = lvl - depth;
       if (channel[i] === 2) lakeLost[i] = 1; // the river has taken this bit of lake back
       if (channel[i] !== 3 || h < height[i] || Math.abs(height[i] - h) > 0.5) height[i] = h;
+      if (bedrock[i] > height[i]) { bedrock[i] = height[i]; grid.bedrockDirty = true; } // the river planes the rock (a strath)
       channel[i] = 1;
       list.push(i);
       chanLevel[i] = lvl;
@@ -344,6 +345,7 @@ export function stampBraided(grid, river, braid, settings, flood) {
       const lvl = lvlOf[i];
       if (channel[i] === 2) lakeLost[i] = 1;
       height[i] = lvl - deepOf[i];
+      if (grid.bedrock[i] > height[i]) { grid.bedrock[i] = height[i]; grid.bedrockDirty = true; }
       channel[i] = 1;
       list.push(i);
       chanLevel[i] = lvl;
@@ -396,53 +398,6 @@ export function retireOxbow(grid, oxbow) {
   }
 }
 
-// Slumping: where two neighbouring dry cells differ by more than a stable
-// slope allows, material slides from the high one to the low one. A bluff
-// beside the river slumps too, down to a stable slope above the river's own
-// floodplain level, and the river carries the debris away. Faces cut into
-// bedrock stand steeper. The engine runs this only while the river is
-// cutting down, so it shapes terrace scarps and leaves ordinary banks (and
-// every non-incising river) exactly as the channel stamp made them.
-export function relaxSlopes(grid, settings) {
-  const { cols, rows, cell, height, channel, chanLevel, bedrock } = grid;
-  const soft = cell * FLOODPLAIN.scarpSlope;
-  const hard = soft * FLOODPLAIN.rockScarpFactor;
-  const D = effectiveDepth(settings);
-  const bank = settings.bankHeight;
-  // Dry cell `d` beside river cell `r`: no higher than one stable step above
-  // the floodplain that river builds.
-  const bluff = (d, r) => {
-    const plain = chanLevel[r] - D + bank;
-    const cap = plain + (chanLevel[r] - D < bedrock[d] ? hard : soft);
-    if (height[d] > cap) height[d] = cap;
-  };
-  const relax = (i, j) => {
-    const ci = channel[i], cj = channel[j];
-    if (ci || cj) {
-      if (ci === 1 && !cj) bluff(j, i);
-      else if (cj === 1 && !ci) bluff(i, j);
-      return;
-    }
-    let hi = i, lo = j;
-    if (height[j] > height[i]) { hi = j; lo = i; }
-    const d = height[hi] - height[lo];
-    const limit = height[lo] < bedrock[hi] ? hard : soft;
-    if (d <= limit) return;
-    const move = (d - limit) / 2;
-    height[hi] -= move;
-    height[lo] += move;
-  };
-  for (let pass = 0; pass < FLOODPLAIN.scarpPasses; pass++) {
-    for (let cy = 0; cy < rows; cy++) {
-      for (let cx = 0; cx < cols; cx++) {
-        const i = cy * cols + cx;
-        if (cx < cols - 1) relax(i, i + 1);
-        if (cy < rows - 1) relax(i, i + cols);
-      }
-    }
-  }
-}
-
 // Vegetation growth, aggradation of low ground, overbank silt, surface ageing.
 // Runs over the whole grid; call every few steps with the accumulated dt.
 export function growLand(grid, settings, dt, flood = 0) {
@@ -454,7 +409,7 @@ export function growLand(grid, settings, dt, flood = 0) {
     if (channel[i]) continue;
     const s = surface[i];
     if (s === SURFACE.ROCK) continue;
-    let v = veg[i] + grow;
+    let v = veg[i] + (s === SURFACE.SCREE ? grow * HILLS.screeVegFactor : grow);
     if (v > 1) v = 1;
     veg[i] = v;
     let h = height[i];
