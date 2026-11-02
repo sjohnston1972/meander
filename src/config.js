@@ -235,6 +235,15 @@ export const HILLS = {
   slideLabelYears: 300,    // Explain mode labels a landslide scar for this long
 };
 
+// --- Sediment (bed material carried down the river) ---
+export const SEDIMENT = {
+  transport: 6.7e5,        // m^3/yr the river can carry per (m^3/s of flow x unit slope): about 20 000 m^3/yr for the default river
+  porosity: 0.4,           // fraction of a deposit that is pore space
+  supplyCoupling: 0.25,    // inflow from upstream = (1 + this x (sediment supply - 1)) x what the river can carry
+  maxAggrade: 4,           // metres the bed can build up above its reference level
+  maxScour: 6,             // metres it can be scoured below it (less where bedrock is nearer)
+};
+
 // --- Braided rivers ---
 export const BRAID = {
   autoThreshold: 0.03,     // 'auto' braids when slope x sqrt(mean discharge) x sediment supply is above this

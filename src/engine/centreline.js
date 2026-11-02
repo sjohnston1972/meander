@@ -32,13 +32,15 @@ export function arcLength(x, y) {
   return s;
 }
 
-// Re-space points evenly by linear interpolation; first and last points are kept.
-export function resample(x, y, ds) {
+// Re-space points evenly by linear interpolation; first and last points are
+// kept. `fields` (arrays with a value per point) are carried along the same way.
+export function resample(x, y, ds, fields = null) {
   const s = arcLength(x, y);
   const total = s[s.length - 1];
   const count = Math.max(2, Math.round(total / ds)) + 1;
   const step = total / (count - 1);
   const rx = new Float64Array(count), ry = new Float64Array(count);
+  const rf = fields ? fields.map(() => new Float64Array(count)) : null;
   let j = 0;
   for (let i = 0; i < count; i++) {
     const target = i === count - 1 ? total : i * step;
@@ -47,10 +49,12 @@ export function resample(x, y, ds) {
     const t = seg > 0 ? (target - s[j]) / seg : 0;
     rx[i] = x[j] + (x[j + 1] - x[j]) * t;
     ry[i] = y[j] + (y[j + 1] - y[j]) * t;
+    if (rf) for (let f = 0; f < rf.length; f++) rf[f][i] = fields[f][j] + (fields[f][j + 1] - fields[f][j]) * t;
   }
   rx[0] = x[0]; ry[0] = y[0];
   rx[count - 1] = x[x.length - 1]; ry[count - 1] = y[y.length - 1];
-  return { x: rx, y: ry };
+  if (rf) for (let f = 0; f < rf.length; f++) { rf[f][0] = fields[f][0]; rf[f][count - 1] = fields[f][x.length - 1]; }
+  return { x: rx, y: ry, fields: rf };
 }
 
 // In-place 3-point moving average; end values never change.

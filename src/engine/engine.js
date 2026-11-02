@@ -1,7 +1,7 @@
 // The simulation engine. Owns the river centreline, the oxbows and the
 // floodplain grid, advances them one fixed time step per tick(), and hands out
 // snapshots for the renderer. Pure JavaScript; never touches three.js.
-import { VALLEY, DT, CENTRELINE, FLOODS, FLOODPLAIN, THALWEG, RENDER, SURFACE, BRAID, HILLS } from '../config.js';
+import { VALLEY, DT, CENTRELINE, FLOODS, FLOODPLAIN, THALWEG, RENDER, SURFACE, BRAID, HILLS, SEDIMENT } from '../config.js';
 
 const RENDER_FEATURE_TICKS = RENDER.featureEveryTicks;
 const BEDROCK_SEND_TICKS = 40; // at most every 10 years
@@ -16,6 +16,7 @@ import {
 } from './floodplain.js';
 import { relaxSlopes, findSlideSite, landslide, newGully, growGully } from './hillslope.js';
 import { fillPond } from './dams.js';
+import { solveBed } from './sediment.js';
 import { exp, pow, hypot } from './dmath.js';
 
 export class Engine {
@@ -58,6 +59,10 @@ export class Engine {
     this.rate = new Float64Array(x.length);
     this.curv = new Float64Array(x.length);
     this.level = new Float64Array(x.length);
+    this.aggr = new Float64Array(x.length);  // bed built up (+) or scoured (-) by sediment, metres, per point
+    this.sedPending = [];       // sediment dumped in the river this step: [{ x, y, volume }]
+    this.sediment = { out: 0, exported: 0, trapped: 0, stored: 0, inflow: 0 };
+    this.q = this.settings.meanDischarge;
     this.grid = createGrid(this.settings, this.rng);
     this.landDt = 0;
     this.features = [];
@@ -77,6 +82,7 @@ export class Engine {
       tickCount: this.tickCount,
       x: Float64Array.from(this.x), y: Float64Array.from(this.y), inletY: this.inletY,
       rate: Float64Array.from(this.rate), curv: Float64Array.from(this.curv), level: Float64Array.from(this.level),
+      aggr: Float64Array.from(this.aggr), sediment: { ...this.sediment }, q: this.q,
       oxbows: this.oxbows.map((o) => ({ ...o, x: o.x.slice(), y: o.y.slice(), cells: o.cells.slice() })),
       oxbowCount: this.oxbowCount,
       history: this.history.map((h) => ({ year: h.year, x: h.x.slice(), y: h.y.slice() })),
@@ -111,6 +117,10 @@ export class Engine {
     this.inflowNoise = createNoise2D(this.settings.seed * 69621 + 13);
     this.inletY = st.inletY ?? st.y[0] - this.inletSwing(st.year); // older saves: carry on from where the inlet is
     this.rate = Float64Array.from(st.rate); this.curv = Float64Array.from(st.curv); this.level = Float64Array.from(st.level);
+    this.aggr = st.aggr ? Float64Array.from(st.aggr) : new Float64Array(this.x.length);
+    this.sedPending = [];
+    this.sediment = { out: 0, exported: 0, trapped: 0, stored: 0, inflow: 0, ...(st.sediment || {}) };
+    this.q = st.q ?? st.discharge;
     this.oxbows = st.oxbows.map((o) => ({ ...o, x: Float32Array.from(o.x), y: Float32Array.from(o.y), cells: Int32Array.from(o.cells) }));
     this.oxbowCount = st.oxbowCount;
     this.history = st.history.map((h) => ({ year: h.year, x: Float32Array.from(h.x), y: Float32Array.from(h.y) }));
@@ -316,18 +326,81 @@ export class Engine {
       const kp = this.knickpoints[k];
       if (kp.pos > total) { this.incision += kp.drop; this.knickpoints.splice(k, 1); }
     }
-    const level = new Float64Array(n);
+    const ref = new Float64Array(n);
     const knick = this.knickpoints.length > 0;
     for (let i = 0; i < n; i++) {
-      level[i] = top - (arc[i] / total) * fall - this.incision - (knick ? this.knickLowering(total - arc[i]) : 0);
+      ref[i] = top - (arc[i] / total) * fall - this.incision - (knick ? this.knickLowering(total - arc[i]) : 0);
     }
-    // Behind a landslide dam the water stands level at the crest.
+    this.refLevel = ref;
+    this.composeLevels();
+  }
+
+  // Water level: the reference profile, plus whatever the bed has built up
+  // or lost to sediment; behind a landslide dam it stands level at the crest.
+  composeLevels() {
+    const n = this.x.length;
+    const ref = this.refLevel;
+    if (this.aggr.length !== n) this.aggr = new Float64Array(n); // only if something replaced the course without carrying it
+    const level = new Float64Array(n);
+    for (let i = 0; i < n; i++) level[i] = ref[i] + this.aggr[i];
     for (const d of this.dams) {
       const j = this.nearestPoint(d.x, d.y);
       d.natural = level[Math.min(n - 1, j + 1)];
       for (let i = j; i >= 0 && level[i] < d.crest; i--) level[i] = d.crest;
     }
     this.level = level;
+  }
+
+  // Dump `volume` m^3 of bed material in the river near (x, y) this step.
+  addSediment(x, y, volume) { if (volume > 0) this.sedPending.push({ x, y, volume }); }
+
+  // Carry bed material down the river for one step (see sediment.js): from
+  // upstream, from what fell in this step, out past the outlet.
+  sedimentStep() {
+    const s = this.settings;
+    const n = this.x.length;
+    const ds = this.ds;
+    const W = s.channelWidth;
+    const k = SEDIMENT.transport * Math.max(0, this.q);
+    const ref = this.refLevel;
+    const S = new Float64Array(n - 1);
+    for (let f = 0; f < n - 1; f++) {
+      const l = hypot(this.x[f + 1] - this.x[f], this.y[f + 1] - this.y[f]) || ds;
+      S[f] = Math.max(0, (ref[f] - ref[f + 1]) / l);
+    }
+    const ratio = 1 + SEDIMENT.supplyCoupling * (s.sedimentSupply - 1);
+    const inflow = ratio * k * S[0];
+    const sed = this.sediment;
+    sed.inflow = inflow;
+    let busy = ratio !== 1 || this.sedPending.length > 0 || this.knickpoints.length > 0 || this.dams.length > 0;
+    for (let i = 0; i < n && !busy; i++) if (this.aggr[i] !== 0) busy = true;
+    if (!busy) {
+      // In balance: everything that comes in goes straight through.
+      sed.out = k * S[n - 2];
+      sed.exported += sed.out * DT;
+      sed.stored = 0;
+      return;
+    }
+    const L = new Float64Array(n);
+    for (const p of this.sedPending) L[this.nearestPoint(p.x, p.y)] += p.volume / DT;
+    this.sedPending.length = 0;
+    const pool = this.dams.length ? this.pooledPoints() : new Uint8Array(n);
+    const zMin = new Float64Array(n), zMax = new Float64Array(n).fill(SEDIMENT.maxAggrade);
+    const g = this.grid;
+    const D = this.depth;
+    for (let i = 0; i < n; i++) {
+      const rock = g.bedrock[cellIndex(g, this.x[i], this.y[i])] - (ref[i] - D); // bedrock relative to the reference bed
+      zMin[i] = Math.min(this.aggr[i], Math.max(-SEDIMENT.maxScour, rock));
+    }
+    const res = solveBed({ z: this.aggr, k, S, L, pool, zMin, zMax, inflow, dt: DT, width: W, ds, porosity: SEDIMENT.porosity });
+    sed.out = res.out;
+    sed.exported += res.out * DT;
+    const cellVolume = (1 - SEDIMENT.porosity) * W * ds;
+    let stored = 0, trapped = 0;
+    for (let i = 0; i < n; i++) { stored += this.aggr[i] * cellVolume; if (pool[i] && this.aggr[i] > 0) trapped += this.aggr[i] * cellVolume; }
+    sed.stored = stored;
+    sed.trapped = trapped;
+    this.composeLevels();
   }
 
   waterLevelAt(index) { return this.level[Math.min(index, this.level.length - 1)]; }
@@ -414,6 +487,7 @@ export class Engine {
     // 2. Migration rate.
     const n = this.x.length;
     const q = this.flood > 0 ? s.meanDischarge * (1 + (s.floodSize - 1) * this.flood) : this.discharge;
+    this.q = q;
     const qFactor = pow(q / s.meanDischarge, CENTRELINE.dischargeExponent);
     let base = s.erodibility * CENTRELINE.migrationScale * qFactor;
     if (this.braid > 0) base *= 1 - (1 - BRAID.migrationFactor) * this.braid; // the braidplain axis wanders slowly
@@ -440,7 +514,7 @@ export class Engine {
       smooth(this.y, CENTRELINE.smoothingPasses);
     }
     this.clampToValley();
-    ({ x: this.x, y: this.y } = resample(this.x, this.y, ds));
+    ({ x: this.x, y: this.y, fields: [this.aggr] } = resample(this.x, this.y, ds, [this.aggr]));
 
     // 4. Cutoffs (a braided river has no meander loops to cut off).
     const minSep = Math.round((CENTRELINE.minSeparationWidths * W) / ds);
@@ -471,6 +545,7 @@ export class Engine {
       if (this.dams.length) this.updateDams(this.landDt);
       this.landDt = 0;
     }
+    this.sedimentStep();
     // Rock planed under the river: tell the renderer now and then, not every step.
     if (this.grid.bedrockDirty && this.tickCount % BEDROCK_SEND_TICKS === 0) {
       this.grid.bedrockDirty = false;
@@ -707,8 +782,11 @@ export class Engine {
     const s = this.settings;
     const level = this.waterLevelAt(i);
     const out = spliceCutoff(this.x, this.y, i, j);
+    const aggr = new Float64Array(out.x.length);
+    aggr.set(this.aggr.subarray(0, i + 1));
+    aggr.set(this.aggr.subarray(j), i + 1);
     this.x = out.x; this.y = out.y;
-    ({ x: this.x, y: this.y } = resample(this.x, this.y, this.ds));
+    ({ x: this.x, y: this.y, fields: [this.aggr] } = resample(this.x, this.y, this.ds, [aggr]));
     const loop = out.loop;
     let cx = 0, cy = 0;
     for (let p = 0; p < loop.x.length; p++) { cx += loop.x[p]; cy += loop.y[p]; }

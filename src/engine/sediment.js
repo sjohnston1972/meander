@@ -1,0 +1,63 @@
+// Bed material (sand and gravel) carried down the river: the Exner equation
+// along the centreline. The river can carry k·S cubic metres a year, where S
+// is the water-surface slope and k = transport coefficient × discharge. Where
+// more arrives than it can carry the bed builds up; where less, it is
+// scoured. With the bed change z (metres above the reference profile) in the
+// slope, S = S_ref − dz/ds, this is a diffusion of the bed, solved implicitly
+// (one tridiagonal system per step, stable for any step length).
+//
+//   (1 − p)·W·ds·dz_i/dt = F_{i−½} − F_{i+½} + L_i,   F = k·(S_ref − dz/ds)
+//
+// The first point takes `inflow` from upstream; the last holds the base level
+// (z = 0). Nothing flows on out of a lake point (`pool`), so sediment the
+// river brings into a lake stays at its head. Afterwards z is kept within [zMin, zMax] (bedrock
+// below, a cap above); what that removes or adds is returned as `clipped`.
+//
+// `r` holds z, k, S (per face, n − 1), L (m^3/yr per point), pool, zMin,
+// zMax, inflow (m^3/yr), dt, width, ds, porosity. z is updated in place.
+// Returns { out: m^3/yr leaving past the last point, clipped: m^3 }.
+const scratch = { n: 0 };
+
+export function solveBed(r) {
+  const { z, k, S, L, pool, zMin, zMax, inflow, dt, width, ds, porosity } = r;
+  const n = z.length;
+  if (scratch.n < n) {
+    scratch.n = n;
+    scratch.lower = new Float64Array(n); scratch.diag = new Float64Array(n); scratch.upper = new Float64Array(n);
+    scratch.rhs = new Float64Array(n); scratch.c = new Float64Array(n); scratch.d = new Float64Array(n);
+  }
+  const { lower, diag, upper, rhs, c, d } = scratch;
+  const a = dt / ((1 - porosity) * width * ds);
+  const cond = k / ds;
+  for (let i = 0; i < n - 1; i++) {
+    const open = (f) => f >= 0 && f < n - 1 && !pool[f];
+    const cl = i > 0 && open(i - 1) ? cond : 0;
+    const cr = open(i) ? cond : 0;
+    const fin = i === 0 ? inflow : (cl ? k * S[i - 1] : 0);
+    const fout = cr ? k * S[i] : 0;
+    lower[i] = -a * cl;
+    upper[i] = -a * cr;
+    diag[i] = 1 + a * (cl + cr);
+    rhs[i] = z[i] + a * (fin - fout + (L ? L[i] : 0));
+  }
+  lower[n - 1] = 0; upper[n - 1] = 0; diag[n - 1] = 1; rhs[n - 1] = 0; // the outlet holds the base level
+  // Thomas algorithm.
+  c[0] = upper[0] / diag[0];
+  d[0] = rhs[0] / diag[0];
+  for (let i = 1; i < n; i++) {
+    const m = diag[i] - lower[i] * c[i - 1];
+    c[i] = upper[i] / m;
+    d[i] = (rhs[i] - lower[i] * d[i - 1]) / m;
+  }
+  z[n - 1] = d[n - 1];
+  for (let i = n - 2; i >= 0; i--) z[i] = d[i] - c[i] * z[i + 1];
+  let clipped = 0;
+  for (let i = 0; i < n; i++) {
+    const v = z[i] < zMin[i] ? zMin[i] : z[i] > zMax[i] ? zMax[i] : z[i];
+    clipped += v - z[i];
+    z[i] = v;
+  }
+  const f = n - 2;
+  const out = !pool[f] ? k * S[f] - cond * (z[f + 1] - z[f]) : 0;
+  return { out, clipped: clipped * (1 - porosity) * width * ds };
+}
