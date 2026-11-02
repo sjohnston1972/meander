@@ -105,6 +105,8 @@ export function validateState(state) {
     if (!finite(o.x) || !finite(o.y) || o.x.length !== o.y.length || o.x.length > 50000 || !inside(o.x, o.y)) fail('oxbow');
     if (!(o.cells instanceof Int32Array) || o.cells.some((i) => i < 0 || i >= n)) fail('oxbow cells');
     for (const k of ['id', 'age', 'depth', 'width', 'year', 'cx', 'cy', 'level', 'lastStampDepth']) if (!num(o[k], -1e6, 1e9)) fail(`oxbow ${k}`);
+    if (o.draining !== undefined && typeof o.draining !== 'boolean') fail('oxbow draining');
+    if (o.drainRate !== undefined && !num(o.drainRate, 0, 1e6)) fail('oxbow drain rate');
   }
   for (const h of state.history) {
     if (!num(h.year, -1, 1e9) || !finite(h.x) || !finite(h.y) || h.x.length !== h.y.length || h.x.length > 50000) fail('history');
@@ -124,4 +126,27 @@ export function validateState(state) {
   if (state.braidTime !== undefined && !num(state.braidTime, 0, 1e9)) fail('braid time');
   if (!Array.isArray(state.knickpoints) || state.knickpoints.length > 1000
     || state.knickpoints.some((k) => !num(k.pos, 0, 1e7) || !num(k.drop, 0, 1000))) fail('knickpoints');
+
+  // Valley walls (absent from saves made before landslides and gullies).
+  const list = (k, max) => {
+    if (state[k] === undefined) return [];
+    if (!Array.isArray(state[k]) || state[k].length > max) fail(k);
+    return state[k];
+  };
+  const nums = (v, keys, lo, hi) => keys.every((k) => num(v?.[k], lo, hi));
+  const at = (v) => num(v?.x, -1, VALLEY.length + 1) && num(v?.y, -1, VALLEY.width + 1);
+  for (const v of list('slides', 1000)) if (!at(v) || !nums(v, ['dirx', 'diry'], -1.01, 1.01) || !nums(v, ['width', 'age'], 0, 1e5)) fail('landslide');
+  for (const v of list('slideMarks', 100)) if (!at(v) || !num(v.year, 0, 1e9)) fail('landslide scar');
+  for (const v of list('hangingLoops', 100)) if (!at(v) || !num(v.year, 0, 1e9)) fail('hanging loop');
+  for (const d of list('dams', 100)) {
+    if (!at(d) || !nums(d, ['crest', 'natural'], -1e5, 1e5) || !nums(d, ['id', 'age', 'radius'], 0, 1e9)) fail('dam');
+    if (!(d.cells instanceof Int32Array) || d.cells.length > n || d.cells.some((i) => i < 0 || i >= n)) fail('dam lake');
+  }
+  if (state.damCount !== undefined && (!Number.isInteger(state.damCount) || state.damCount < 0)) fail('dam count');
+  for (const v of list('gullies', 200)) {
+    if (!at(v) || !nums(v, ['dirx', 'diry'], -1.01, 1.01) || !nums(v, ['length', 'maxLength', 'age'], 0, 1e7)) fail('gully');
+    if (!(v.footZ === Infinity || num(v.footZ, -1e5, 1e5))) fail('gully mouth');
+    if (!Array.isArray(v.px) || !Array.isArray(v.py) || v.px.length !== v.py.length || v.px.length < 2 || v.px.length > 1000
+      || !inside(v.px, v.py)) fail('gully course');
+  }
 }

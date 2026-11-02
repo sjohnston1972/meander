@@ -71,4 +71,34 @@ describe('save and resume', () => {
     expect(out.hardRock).toBe(defaults.hardRock);
     expect('bogus' in out).toBe(false);
   });
+
+  it('a gorge with landslides, dams, gullies and hanging loops carries on exactly after a save', { timeout: 300000 }, () => {
+    const s = { ...defaults, quality: 'low', incisionRate: 15 };
+    const a = new Engine(s);
+    run(a, 2500 / 0.25);
+    a.triggerLandslide();
+    const n = a.x.length;
+    a.makeDam(Math.floor(n * 0.6), 1.2);
+    a.cutoff(Math.floor(n / 2) - 30, Math.floor(n / 2) + 30, 'neck');
+    run(a, 1); // levels follow the new course on the next step
+    expect(a.gullies.length).toBeGreaterThan(0);
+    const c = Engine.fromState(decodeSave(encodeSave(a.serialize())));
+    expect(c.gullies.length).toBe(a.gullies.length);
+    expect(c.dams.length).toBe(a.dams.length);
+    run(a, 800); run(c, 800);
+    expect(fingerprint(c)).toBe(fingerprint(a));
+    expect(c.hangingLoops).toEqual(a.hangingLoops);
+    expect(c.slideMarks).toEqual(a.slideMarks);
+  });
+
+  it('opens a save from before gorges had landslides and gullies', () => {
+    const e = new Engine({ ...defaults, quality: 'low', incisionRate: 10 });
+    run(e, 200);
+    const st = e.serialize();
+    for (const k of ['slides', 'slideMarks', 'dams', 'damCount', 'gullies', 'hangingLoops']) delete st[k];
+    const c = Engine.fromState(decodeSave(encodeSave(st)));
+    run(c, 40);
+    expect(c.gullies).toEqual([]);
+    expect(Number.isFinite(c.x[10])).toBe(true);
+  });
 });
