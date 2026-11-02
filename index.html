@@ -51,6 +51,18 @@
       #graphs .g-hi, #graphs .g-lo { position: absolute; right: 0; width: 36px; text-align: right; font-size: 9px; color: var(--g-muted); font-variant-numeric: tabular-nums; pointer-events: none; }
       #graphs .g-hi { top: -1px; } #graphs .g-lo { bottom: -1px; }
       @media (max-width: 700px) { #graphs { top: 120px; left: 8px; } }
+      /* Guided scenario captions, bottom centre. */
+      #scenario { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); width: 520px; max-width: calc(100vw - 32px); box-sizing: border-box;
+        z-index: 7; display: none; background: var(--panel); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 14px 10px; }
+      #scenario.show { display: block; }
+      #scenario .sc-head { display: flex; align-items: baseline; gap: 10px; }
+      #scenario .sc-title { font-weight: 600; font-size: 0.95rem; }
+      #scenario .sc-count { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+      #scenario .sc-close { margin-left: auto; background: none; border: none; color: var(--muted); font-size: 1rem; cursor: pointer; }
+      #scenario .sc-text { margin: 6px 0 8px; font-size: 0.9rem; line-height: 1.45; color: #e3eaec; }
+      #scenario .sc-foot { display: flex; justify-content: flex-end; }
+      #scenario .sc-next { font: inherit; font-size: 0.85rem; color: #e8eef0; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 4px 12px; cursor: pointer; }
+      body.touch #scenario { bottom: 74px; }
       #toasts { position: fixed; left: 56px; bottom: 16px; display: flex; flex-direction: column; gap: 6px; z-index: 6; pointer-events: none; }
       .toast { background: var(--panel); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 12px;
         font-size: 0.9rem; opacity: 0; transform: translateY(6px); transition: opacity 0.25s, transform 0.25s; }

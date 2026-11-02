@@ -15,6 +15,7 @@ import { createSim } from './sim.js';
 import { createControls } from './ui/controls.js';
 import { createCrossSection } from './ui/crosssection.js';
 import { createGraphs } from './ui/graphs.js';
+import { createScenarios } from './ui/scenarios.js';
 import { toast } from './ui/toast.js';
 import { decodeSettings, copyLink, saveScreenshot } from './ui/share.js';
 import { packRiver, unpackRiver, download, pickFile } from './ui/files.js';
@@ -129,6 +130,7 @@ async function start() {
     particles.setSnapshot(snap, quality().particles);
     section.refresh(snap);
     graphs.update(snap);
+    scenarios.update(snap);
     hudYear.textContent = `Year ${Math.floor(snap.year).toLocaleString()}${snap.climate?.phase ? ` · ${snap.climate.phase} period` : ''}`;
     showSedimentHud(snap);
     controls.setYear(snap.year, snap.flood);
@@ -206,6 +208,7 @@ async function start() {
       toast(`Click on the river where you want the ${WORK_NAMES[kind].toLowerCase()} (Esc to cancel)`);
     },
     removeWorks() { sim.build('remove', 0, 0); },
+    startScenario(id) { scenarios.start(id); },
     togglePlay() {
       sim.toggle();
       controls.setPlaying(sim.playing);
@@ -286,6 +289,47 @@ async function start() {
     },
   };
   const controls = createControls(settings, actions);
+
+  // Guided scenarios: set up a river, play it, caption it.
+  const sharpestBend = () => {
+    const c = snapshot?.centreline;
+    if (!c) return null;
+    const n = c.x.length;
+    let best = Math.floor(n / 2);
+    for (let i = Math.floor(n / 4); i < Math.floor(n * 0.75); i++) if (Math.abs(c.curvature[i]) > Math.abs(c.curvature[best])) best = i;
+    return [c.x[best], c.y[best]];
+  };
+  const scenarios = createScenarios({
+    defaults,
+    settings,
+    apply(next) {
+      Object.assign(settings, next, { paintRock: false });
+      controls.refresh('Custom');
+      view.setTimeOfDay(settings.timeOfDay);
+      view.setFog(settings.fog);
+      sim.setSpeed(settings.yearsPerSecond);
+      water.setShowSediment(settings.showSediment);
+      graphs.show(settings.showGraphs);
+      reset();
+      if (!sim.playing) actions.togglePlay();
+    },
+    setView(key, on) {
+      settings[key] = on;
+      controls.refresh('Custom');
+      actions.onRenderSetting(key);
+    },
+    landslide() { sim.triggerLandslide(); },
+    build(kind) {
+      if (kind === 'remove') { sim.build('remove', 0, 0); return; }
+      const at = sharpestBend();
+      if (at) sim.build(kind, at[0], at[1]);
+    },
+    camera(name) {
+      if (name === 'bend') flyToBend();
+      else if (name === 'end') view.flyTo([800, 1700, 1900], [1700, 0, 0]);
+      else if (CAMERAS[name]) view.flyTo(CAMERAS[name].pos, CAMERAS[name].target);
+    },
+  });
   if (fromLink) { controls.refresh('Custom'); toast('Loaded river from link'); }
 
   // Keyboard.
@@ -425,7 +469,7 @@ async function start() {
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-  return { settings, view, sim, controls, terrain, water, recorder, get snapshot() { return snapshot; } };
+  return { settings, view, sim, controls, terrain, water, recorder, scenarios, get snapshot() { return snapshot; } };
 }
 
 if (supported()) {

@@ -2,6 +2,7 @@
 // config.HELP, and settings are routed to the engine or the renderer.
 import GUI from 'lil-gui';
 import { HELP, PRESETS, RESET_KEYS, RANGES } from '../config.js';
+import { SCENARIOS } from './scenarios.js';
 
 // Which settings the renderer owns (everything else goes to the engine).
 const RENDER_KEYS = new Set([
@@ -52,6 +53,17 @@ export function createControls(settings, actions) {
   const yearCtrl = help(sim.add(state, 'year').name('Year').disable(), 'year');
   const noteCtrl = sim.add(state, 'resetNote').name('').disable();
   noteCtrl.domElement.style.display = 'none';
+
+  // --- Guided scenarios ---
+  const tours = gui.addFolder('Guided scenarios');
+  const tour = { scenario: '' };
+  const tourOptions = { 'Choose one…': '' };
+  for (const sc of SCENARIOS) tourOptions[sc.title] = sc.id;
+  help(tours.add(tour, 'scenario', tourOptions).name('Scenario').onChange((id) => {
+    if (!id || suppress) return;
+    actions.startScenario(id);
+    tour.scenario = '';
+  }), 'scenario');
 
   // --- Presets ---
   const presets = gui.addFolder('Presets');

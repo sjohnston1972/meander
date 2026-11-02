@@ -516,6 +516,7 @@ export const HELP = {
   seed: 'Seed for all randomness. Same seed and settings always give the same river. Needs a reset',
   startShape: 'Shape of the initial channel. Needs a reset',
   year: 'Simulated years since the start',
+  scenario: 'A guided scenario: sets up a river, plays it and explains what happens, step by step. Starting one is like pressing Reset (a river that ran 100 years or more can be brought back from Save and share)',
   preset: 'Load a set of settings for a type of river (resets the simulation)',
   meanDischarge: 'Average flow in cubic metres per second. More water, faster migration',
   floodFrequency: 'Average number of floods per 100 years',
