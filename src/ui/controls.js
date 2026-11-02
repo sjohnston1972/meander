@@ -16,7 +16,10 @@ function help(ctrl, key) {
 }
 
 export function createControls(settings, actions) {
-  const gui = new GUI({ title: 'Meander', width: 300 });
+  const narrow = window.innerWidth < 700;
+  // On a narrow screen leave room on the left for the title and year.
+  const gui = new GUI({ title: 'Meander', width: narrow ? Math.max(200, window.innerWidth - 170) : 300 });
+  if (narrow) gui.close(); // on a phone the panel starts folded away
   const state = { preset: 'Custom', year: 'Year 0', playing: false, resetNote: '' };
   let suppress = false;
 
@@ -125,6 +128,7 @@ export function createControls(settings, actions) {
   help(share.add({ save: () => actions.saveFile() }, 'save').name('Save river to file'), 'saveFile');
   help(share.add({ open: () => actions.openFile() }, 'open').name('Open river file'), 'openFile');
   help(share.add({ prev: () => actions.restorePrevious() }, 'prev').name('Restore earlier river'), 'restorePrevious');
+  const recCtrl = help(share.add({ rec: () => actions.toggleRecording() }, 'rec').name('Record time-lapse'), 'record');
 
   for (const f of [flow, channel, banks, veg, cut, scene, share]) f.close();
 
@@ -134,6 +138,7 @@ export function createControls(settings, actions) {
       state.year = `Year ${Math.floor(year).toLocaleString()}${flood > 0 ? '  ·  FLOOD' : ''}`;
       yearCtrl.updateDisplay();
     },
+    setRecording(on) { recCtrl.name(on ? '■ Stop recording' : 'Record time-lapse'); },
     setPlaying(playing) {
       state.playing = playing;
       playCtrl.name(playing ? '❚❚ Pause (Space)' : '▶ Play (Space)');

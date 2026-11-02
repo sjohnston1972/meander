@@ -15,11 +15,15 @@ import { createCrossSection } from './ui/crosssection.js';
 import { toast } from './ui/toast.js';
 import { decodeSettings, copyLink, saveScreenshot } from './ui/share.js';
 import { packRiver, unpackRiver, download, pickFile } from './ui/files.js';
+import { createRecorder, recordingSupported } from './ui/recorder.js';
 import { getMeta } from './storage.js';
 import { sanitizeSettings } from './settings.js';
 
+// Phones and tablets: a coarse pointer (a finger) means touch controls, the
+// Low quality grid by default and a capped pixel ratio.
+const touch = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+
 function supported() {
-  if (window.innerWidth < 1024) return false;
   const probe = document.createElement('canvas');
   return !!probe.getContext('webgl2');
 }
@@ -30,12 +34,14 @@ const braided = (snap) => !!snap?.braid && snap.braid.amount >= 0.5;
 async function start() {
   const settings = decodeSettings(location.hash, defaults);
   const fromLink = location.hash.length > 1;
+  if (touch && !/(^|[#&])quality=/.test(location.hash)) settings.quality = 'low';
+  document.body.classList.toggle('touch', touch);
   // Carry on with the autosaved river unless a link names a river, or the
   // URL says ?fresh.
   const params = new URLSearchParams(location.search);
   const resume = !fromLink && !params.has('fresh') && !!(await getMeta()).autosave;
   const canvas = document.getElementById('view');
-  const view = createScene(canvas, settings);
+  const view = createScene(canvas, settings, { maxPixelRatio: touch ? 1.5 : 2 });
   const quality = () => QUALITY[settings.quality] || QUALITY.medium;
 
   const terrain = createTerrain();
@@ -56,6 +62,16 @@ async function start() {
 
   const hudYear = document.getElementById('year');
   const hudFlood = document.getElementById('flood-hud');
+  const hudRec = document.getElementById('rec-hud');
+  const recorder = createRecorder(canvas);
+  async function finishRecording(result) {
+    controls.setRecording(false);
+    hudRec.textContent = '';
+    if (!result) { toast('Nothing was recorded'); return; }
+    download(result.blob, result.name, result.blob.type);
+    toast(`Time-lapse saved (${(result.blob.size / 1e6).toFixed(1)} MB, ${Math.round(result.seconds)} s)`);
+  }
+  recorder.onAutoStop(finishRecording);
   const groundHeight = (x, y) => (snapshot ? terrain.heightAt(snapshot, x, y, settings.exaggeration) : 0);
   view.setGroundProbe((wx, wz) => groundHeight(wx + VALLEY.length / 2, wz + VALLEY.width / 2));
 
@@ -128,7 +144,11 @@ async function start() {
   }
 
   const actions = {
-    togglePlay() { sim.toggle(); controls.setPlaying(sim.playing); },
+    togglePlay() {
+      sim.toggle();
+      controls.setPlaying(sim.playing);
+      document.getElementById('tb-play').textContent = sim.playing ? '❚❚' : '▶';
+    },
     step(years) { sim.step(years); },
     reset,
     flood() { sim.triggerFlood(); },
@@ -167,6 +187,15 @@ async function start() {
     screenshot() {
       saveScreenshot(view.renderer, view.scene, view.camera, snapshot?.year ?? 0);
       toast('Screenshot saved');
+    },
+    async toggleRecording() {
+      if (recorder.recording) { finishRecording(await recorder.stop()); return; }
+      if (!recordingSupported()) { toast('This browser cannot record video'); return; }
+      if (!recorder.start(snapshot?.year ?? 0)) return;
+      controls.setRecording(true);
+      hudRec.textContent = '● Recording';
+      toast('Recording the view. Play the river, move the camera, then press Stop recording');
+      if (!sim.playing) actions.togglePlay();
     },
     async saveFile() {
       toast('Saving the river...');
@@ -213,9 +242,11 @@ async function start() {
     const c = snapshot.centreline;
     const n = c.x.length, prot = Math.floor(n * 0.08);
     let best = prot;
-    for (let i = prot; i < n - prot; i++) if (Math.abs(c.curvature[i]) > Math.abs(c.curvature[best])) best = i;
+    if (braided(snapshot)) best = Math.floor(n / 2);
+    else for (let i = prot; i < n - prot; i++) if (Math.abs(c.curvature[i]) > Math.abs(c.curvature[best])) best = i;
     const tx = c.x[best] - VALLEY.length / 2, tz = c.y[best] - VALLEY.width / 2, ty = c.level[best] * settings.exaggeration;
-    view.flyTo([tx - 420, ty + 230, tz + 520], [tx, ty, tz]);
+    const far = braided(snapshot) ? 1.6 : 1; // a braid is wider than a bend
+    view.flyTo([tx - 200 * far, ty + 115 * far, tz + 250 * far], [tx, ty, tz]);
   }
 
   // Mouse picking: cross-section on the river, rock painting on the ground.
@@ -277,13 +308,21 @@ async function start() {
     reset();
     toast('Loaded river from link');
   });
-  window.addEventListener('resize', () => {
-    document.getElementById('desktop-only').classList.toggle('show', window.innerWidth < 1024);
-  });
+  // Touch toolbar: the keyboard shortcuts as buttons.
+  const cams = ['overview', 'oblique', 'bend', 'topdown'];
+  let cam = 0;
+  const tbPlay = document.getElementById('tb-play');
+  tbPlay.onclick = () => { actions.togglePlay(); tbPlay.textContent = sim.playing ? '❚❚' : '▶'; };
+  document.getElementById('tb-flood').onclick = () => actions.flood();
+  document.getElementById('tb-view').onclick = () => {
+    cam = (cam + 1) % cams.length;
+    if (cams[cam] === 'bend') flyToBend(); else view.flyTo(CAMERAS[cams[cam]].pos, CAMERAS[cams[cam]].target);
+  };
+  document.getElementById('tb-help').onclick = () => document.getElementById('help').classList.toggle('show');
 
   // Start playing once the worker is ready (unless the URL says ?autoplay=0).
   if (new URLSearchParams(location.search).get('autoplay') !== '0') {
-    setTimeout(() => { sim.play(); controls.setPlaying(true); }, 300);
+    setTimeout(() => { sim.play(); controls.setPlaying(true); tbPlay.textContent = '❚❚'; }, 300);
   }
 
   let last = performance.now();
@@ -308,10 +347,11 @@ async function start() {
     labels.update(snapshot, view.camera, settings.exaggeration, settings.showLabels, groundHeight, settings.showParticles);
     if (section.open) section.draw(dt);
     view.render(dt);
+    if (recorder.recording) recorder.frame(snapshot?.year ?? 0);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-  return { settings, view, sim, controls, terrain, water, get snapshot() { return snapshot; } };
+  return { settings, view, sim, controls, terrain, water, recorder, get snapshot() { return snapshot; } };
 }
 
 if (supported()) {

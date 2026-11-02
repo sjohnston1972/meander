@@ -3,9 +3,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { VALLEY, RENDER, CAMERAS, QUALITY } from '../config.js';
 
-export function createScene(canvas, settings) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+export function createScene(canvas, settings, { maxPixelRatio = 2 } = {}) {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stencil: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -32,6 +32,7 @@ export function createScene(canvas, settings) {
   controls.update();
 
   const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x4a5a3a, 0.9);
+  const hemiGround = { day: new THREE.Color(0x4a5a3a), dusk: new THREE.Color(0x7a5a32) };
   scene.add(hemi);
 
   const sun = new THREE.DirectionalLight(0xfff2dc, 2.4);
@@ -112,7 +113,7 @@ export function createScene(canvas, settings) {
   }
 
   const skyColours = { day: new THREE.Color(0xd6e6f2), dusk: new THREE.Color(0xf0b57a) };
-  const fogColours = { day: new THREE.Color(0xd3e0ea), dusk: new THREE.Color(0xe8b98c) };
+  const fogColours = { day: new THREE.Color(0xd3e0ea), dusk: new THREE.Color(0xecc89a) };
   const sunColours = { day: new THREE.Color(0xfff2dc), dusk: new THREE.Color(0xffa552) };
 
   function setTimeOfDay(hour) {
@@ -125,9 +126,12 @@ export function createScene(canvas, settings) {
     sun.target.position.set(0, 0, 0);
     const low = 1 - Math.min(1, Math.sin(Math.PI * t) * 1.6); // 1 near sunrise/sunset
     sun.color.copy(sunColours.day).lerp(sunColours.dusk, low);
-    sun.intensity = 1.5 + 1.1 * Math.sin(Math.PI * t);
-    hemi.intensity = 0.55 + 0.45 * Math.sin(Math.PI * t);
+    sun.intensity = 1.5 + 1.1 * Math.sin(Math.PI * t) + 0.9 * low;
+    hemi.intensity = (0.55 + 0.45 * Math.sin(Math.PI * t)) * (1 - 0.3 * low);
     hemi.color.copy(skyColours.day).lerp(skyColours.dusk, low * 0.6);
+    hemi.groundColor.copy(hemiGround.day).lerp(hemiGround.dusk, low);
+    // Low sun: open up the exposure so the light reads golden, not murky.
+    renderer.toneMappingExposure = 1 + 0.35 * low;
     scene.background.copy(skyColours.day).lerp(skyColours.dusk, low * 0.9);
     scene.fog.color.copy(fogColours.day).lerp(fogColours.dusk, low * 0.9);
     paintSky(low);

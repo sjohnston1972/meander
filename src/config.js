@@ -235,7 +235,9 @@ export const FLOODS = {
 // --- Renderer ---
 export const RENDER = {
   waterLevelOffset: 0.0,   // metres above bed+depth the water surface sits
-  rippleSpeed: 0.05,       // normal-map scroll speed
+  rippleSpeed: 0.05,       // normal-map scroll speed (tiles per second)
+  rippleMetres: 14,        // size of one tile of the water ripple pattern, metres
+  detailMetres: 9,         // size of one tile of the ground's fine detail texture, metres
   poolColour: 0x153f52,    // deep water
   riffleColour: 0x5aa6b8,  // shallow water
   floodColour: 0x7a6a3c,   // muddy flood water
@@ -358,6 +360,7 @@ export const HELP = {
   quality: 'Trades detail for speed. Changing it resets the simulation',
   copyLink: 'Copy a link that reopens this exact river and settings',
   screenshot: 'Save a PNG of the current view',
+  record: 'Record the view as a video, with the year in the corner. Play the river fast and move the camera as you like; press again to stop and save (3 minutes at most)',
   saveFile: 'Download the whole river, landscape and history as a .meander file you can open again later',
   openFile: 'Open a .meander file saved earlier and carry on from where it was',
   restorePrevious: 'Bring back the river you had before the current one (kept when it ran at least 100 years). Your river is also saved in this browser automatically'

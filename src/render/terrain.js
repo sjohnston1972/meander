@@ -32,6 +32,47 @@ const PAL = {};
 for (const [k, c] of Object.entries(palette)) PAL[k] = rgb(c);
 const BR = rgb(new THREE.Color(RENDER.bedrockColour));
 
+// Fine ground detail for close views: a grey grain texture multiplied into
+// the vertex colours, and matching bumps. Both tile every few metres in world
+// space and are mipmapped, so from afar they average out to a flat tint.
+function makeDetailTextures(size = 256) {
+  const grain = new Uint8Array(size * size * 4);
+  const bump = new Float32Array(size * size);
+  const h = (x, y, f, s) => Math.sin(x * f + Math.sin(y * f * 0.7 + s) * 1.7) * Math.cos(y * f * 1.1 - Math.sin(x * f * 0.5 + s) * 1.3);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    // Periodic octaves (frequencies are whole multiples of 2*pi/size) so the tile repeats seamlessly.
+    const w = (2 * Math.PI) / size;
+    const v = 0.5 * h(x, y, w * 3, 0.3) + 0.3 * h(x, y, w * 7, 1.9) + 0.2 * h(x, y, w * 17, 4.1);
+    const r = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+    const speck = (r - Math.floor(r)) - 0.5;
+    bump[y * size + x] = v * 0.7 + speck * 0.3;
+    const g = Math.max(0, Math.min(255, Math.round((0.9 + v * 0.06 + speck * 0.07) * 255)));
+    const i = (y * size + x) * 4;
+    grain[i] = grain[i + 1] = grain[i + 2] = g; grain[i + 3] = 255;
+  }
+  const normals = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const at = (a, b) => bump[((b + size) % size) * size + ((a + size) % size)];
+    const dx = at(x + 1, y) - at(x - 1, y), dy = at(x, y + 1) - at(x, y - 1);
+    const nx = -dx * 1.4, ny = -dy * 1.4;
+    const l = Math.hypot(nx, ny, 1);
+    const i = (y * size + x) * 4;
+    normals[i] = (nx / l * 0.5 + 0.5) * 255; normals[i + 1] = (ny / l * 0.5 + 0.5) * 255; normals[i + 2] = (1 / l * 0.5 + 0.5) * 255; normals[i + 3] = 255;
+  }
+  const tex = (data, colour) => {
+    const t = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.generateMipmaps = true;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    t.anisotropy = 8;
+    if (colour) t.colorSpace = THREE.SRGBColorSpace;
+    t.needsUpdate = true;
+    return t;
+  };
+  return { map: tex(grain, true), normalMap: tex(normals, false) };
+}
+
 export function createTerrain() {
   let cols = 0, rows = 0, cell = 0;
   let geometry = null, skirtGeometry = null;
@@ -39,8 +80,15 @@ export function createTerrain() {
   let adaptive = false; // quads split along their flatter diagonal (only while cutting)
   let bedrock = null; // top of the bedrock per cell, sent only when it moves
   const edgeList = [];
-  const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
-  const skirtMaterial = new THREE.MeshStandardMaterial({ color: 0x6b5a45, roughness: 1 });
+  const detail = makeDetailTextures();
+  // The grain averages to about 0.9 (in sRGB); the colour factor brings the
+  // overall tone back to what the vertex colours say.
+  const material = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.95, metalness: 0,
+    map: detail.map, normalMap: detail.normalMap, normalScale: new THREE.Vector2(0.55, 0.55),
+    color: new THREE.Color(1.24, 1.24, 1.24),
+  });
+  const skirtMaterial = new THREE.MeshStandardMaterial({ color: 0x6b5a45, roughness: 1, side: THREE.DoubleSide }); // seen from outside the valley too
   const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
   mesh.receiveShadow = true;
   mesh.castShadow = true;
@@ -51,7 +99,7 @@ export function createTerrain() {
   function build(c, r, cs) {
     cols = c; rows = r; cell = cs;
     const n = cols * rows;
-    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3);
+    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3), uvs = new Float32Array(n * 2);
     jitter = new Float32Array(n);
     meadow = new Float32Array(n);
     edge = new Float32Array(n * 3);
@@ -62,6 +110,8 @@ export function createTerrain() {
       pos[i * 3] = (cx + 0.5) * cell - VALLEY.length / 2;
       pos[i * 3 + 1] = 0;
       pos[i * 3 + 2] = (cy + 0.5) * cell - VALLEY.width / 2;
+      uvs[i * 2] = ((cx + 0.5) * cell) / RENDER.detailMetres;
+      uvs[i * 2 + 1] = ((cy + 0.5) * cell) / RENDER.detailMetres;
       nor[i * 3 + 1] = 1;
       // Small deterministic per-vertex tint variation so flat colours do not look plastic.
       const h = Math.sin(cx * 12.9898 + cy * 78.233) * 43758.5453;
@@ -75,6 +125,7 @@ export function createTerrain() {
     geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
     geometry.setIndex(new THREE.BufferAttribute(idx, 1));
     mesh.geometry = geometry;
 

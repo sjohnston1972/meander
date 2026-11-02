@@ -27,6 +27,7 @@
       #hud h1 { margin: 0; font-size: 1.1rem; font-weight: 600; letter-spacing: 0.02em; }
       #hud .year { font-variant-numeric: tabular-nums; color: #d9e4e8; font-size: 0.95rem; margin-top: 2px; }
       #hud .flood { color: #e0b86a; font-size: 0.85rem; margin-top: 2px; min-height: 1em; }
+      #hud .rec { color: #ff6b6b; font-size: 0.85rem; margin-top: 2px; }
       #toasts { position: fixed; left: 56px; bottom: 16px; display: flex; flex-direction: column; gap: 6px; z-index: 6; pointer-events: none; }
       .toast { background: var(--panel); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 12px;
         font-size: 0.9rem; opacity: 0; transform: translateY(6px); transition: opacity 0.25s, transform 0.25s; }
@@ -64,21 +65,48 @@
       #footer a { color: var(--muted); }
       .lil-gui { --background-color: rgba(18, 24, 28, 0.86); --widget-color: rgba(255,255,255,0.08); --hover-color: rgba(255,255,255,0.14);
         --focus-color: rgba(111,195,214,0.35); --number-color: #6fc3d6; --string-color: #e0b86a; --font-size: 12px; --width: 300px; }
-      .lil-gui.root { backdrop-filter: blur(6px); max-height: calc(100vh - 24px); margin: 12px; overflow-y: auto; }
-      .lil-gui.root > .title { font-weight: 600; }
+      .lil-gui.lil-root { backdrop-filter: blur(6px); max-height: calc(100vh - 24px); margin: 12px; overflow-y: auto; }
+      .lil-gui.lil-root > .lil-title { font-weight: 600; }
+      #touchbar { display: none; position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); gap: 10px; z-index: 9; }
+      body.touch #touchbar { display: flex; }
+      #touchbar button { width: 52px; height: 44px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.15);
+        background: var(--panel); color: var(--text); font-size: 1rem; backdrop-filter: blur(6px); }
+      body.touch #help-btn { display: none; }
+      body.touch #toasts { left: 16px; bottom: 74px; }
+      body.touch #help { bottom: 74px; }
+      .help-touch { display: none; }
+      body.touch .help-touch { display: table-row-group; }
+      body.touch .help-keys { display: none; }
+      @media (max-width: 700px) {
+        #section { left: 8px; right: 8px; width: auto; bottom: 70px; }
+        #section canvas { width: 100%; height: auto; }
+        #card { left: 8px; right: 8px; width: auto; top: 70px; }
+        #help { left: 8px; right: 8px; width: auto; }
+        #footer { display: none; }
+        #hud h1 { font-size: 1rem; }
+      }
     </style>
   </head>
   <body>
     <div id="app">
       <canvas id="view"></canvas>
-      <div id="hud"><h1>Meander</h1><div class="year" id="year">Year 0</div><div class="flood" id="flood-hud"></div></div>
+      <div id="hud"><h1>Meander</h1><div class="year" id="year">Year 0</div><div class="flood" id="flood-hud"></div><div class="rec" id="rec-hud"></div></div>
       <div id="labels"></div>
       <div id="card"><button id="card-close" aria-label="Close">×</button><h2 id="card-title"></h2><p id="card-text"></p></div>
       <div id="section"><button id="section-close" aria-label="Close">×</button><h2 id="section-title">Cross-section</h2><canvas id="section-canvas" width="792" height="360"></canvas><p id="section-text"></p></div>
       <div id="toasts"></div>
       <button id="help-btn" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</button>
-      <div id="help"><button id="help-close" aria-label="Close">×</button><h2>Keyboard and mouse</h2>
+      <div id="help"><button id="help-close" aria-label="Close">×</button><h2>Controls</h2>
         <table>
+          <tbody class="help-touch">
+          <tr><td>One finger</td><td>Rotate</td></tr>
+          <tr><td>Two fingers</td><td>Pan and zoom</td></tr>
+          <tr><td>Tap river</td><td>Cross-section</td></tr>
+          <tr><td>Double tap</td><td>Fly to that spot</td></tr>
+          <tr><td>▶ ☔ ⌖</td><td>Play, flood, next view</td></tr>
+          <tr><td>Meander</td><td>Panel with every setting</td></tr>
+          </tbody>
+          <tbody class="help-keys">
           <tr><td>Left drag</td><td>Rotate</td></tr>
           <tr><td>Right drag</td><td>Pan</td></tr>
           <tr><td>Scroll</td><td>Zoom</td></tr>
@@ -89,12 +117,19 @@
           <tr><td>R</td><td>Reset</td></tr>
           <tr><td>1 2 3 4</td><td>Camera presets</td></tr>
           <tr><td>?</td><td>This list</td></tr>
+          </tbody>
         </table>
+      </div>
+      <div id="touchbar" aria-label="Touch controls">
+        <button id="tb-play" aria-label="Play or pause">▶</button>
+        <button id="tb-flood" aria-label="Trigger a flood">☔</button>
+        <button id="tb-view" aria-label="Next camera view">⌖</button>
+        <button id="tb-help" aria-label="Help">?</button>
       </div>
       <div id="footer"><a href="https://github.com/sjohnston1972/meander" target="_blank" rel="noopener">Open source (MIT)</a> · model after Howard &amp; Knutson 1984</div>
     </div>
-    <div id="desktop-only"><div class="card"><h1>Meander is best on a desktop browser</h1>
-      <p>This river simulator needs a window at least 1024 pixels wide and a graphics card with WebGL2. Please open it on a laptop or desktop computer.</p></div></div>
+    <div id="desktop-only"><div class="card"><h1>Meander needs WebGL2</h1>
+      <p>This river simulator draws its 3D valley with WebGL2, which this browser does not offer. Please try a recent Chrome, Edge, Firefox or Safari.</p></div></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

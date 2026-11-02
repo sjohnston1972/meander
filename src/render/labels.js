@@ -47,7 +47,7 @@ export function createLabels(container, card) {
     }
     const w = window.innerWidth, h = window.innerHeight;
     // Keep labels off the control panel on the right.
-    const panel = document.querySelector('.lil-gui.root');
+    const panel = document.querySelector('.lil-gui.lil-root');
     const limitX = panel && panel.offsetParent !== null ? panel.getBoundingClientRect().left - 70 : w;
     const items = [];
     for (const f of snapshot.features) {

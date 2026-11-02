@@ -30,6 +30,11 @@ function makeNormalMap(size = 256) {
   }
   const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  // Mipmaps: far water averages to calm instead of shimmering.
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.anisotropy = 8;
   tex.needsUpdate = true;
   return tex;
 }
@@ -63,8 +68,8 @@ function writeRibbon(mesh, start, x, y, level, width, exaggeration, colourFn, ar
   const uv = mesh.geometry.attributes.uv.array;
   const idx = mesh.geometry.index.array;
   const perPoint = typeof width !== 'number';
-  const uvWidth = perPoint ? Math.max(1, width.reduce((a, b) => Math.max(a, b), 0)) : width;
   let hw = perPoint ? 0 : width * (0.5 + EDGE_OVERLAP);
+  const R = RENDER.rippleMetres;
   let s = arcOffset;
   for (let i = 0; i < n; i++) {
     const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
@@ -83,8 +88,9 @@ function writeRibbon(mesh, start, x, y, level, width, exaggeration, colourFn, ar
       pos[v * 3 + 2] = y[i] + ny * u - VALLEY.width / 2;
       colourFn(i, u01);
       col[v * 3] = tmp.r; col[v * 3 + 1] = tmp.g; col[v * 3 + 2] = tmp.b;
-      uv[v * 2] = s / (uvWidth * 2);
-      uv[v * 2 + 1] = u01 * 1.2;
+      // Ripple texture in metres, so ripples are the same size on any river.
+      uv[v * 2] = s / R;
+      uv[v * 2 + 1] = u / R;
     }
   }
   for (let i = 0; i < n - 1; i++) {
@@ -136,8 +142,15 @@ export function createWater() {
 
   const river = makeRibbon(riverMaterial);
   river.renderOrder = 2;
-  // All the threads of a braided reach share one ribbon mesh.
-  const threads = makeRibbon(riverMaterial);
+  // All the threads of a braided reach share one ribbon mesh. Where threads
+  // overlap, the stencil lets only the first one draw, so crossings are not
+  // darker and merged threads need no trimming.
+  const threadMaterial = riverMaterial.clone();
+  Object.assign(threadMaterial, {
+    stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc,
+    stencilZPass: THREE.ReplaceStencilOp, stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp,
+  });
+  const threads = makeRibbon(threadMaterial);
   threads.renderOrder = 2;
   threads.visible = false;
   const lakes = new Map();
@@ -243,6 +256,7 @@ export function createWater() {
       threads.visible = false;
     }
     riverMaterial.opacity = opacity;
+    threadMaterial.opacity = opacity;
 
     // Oxbows never change shape, so each lake ribbon is built once (keyed by
     // the oxbow id) and only its tint and height change after.

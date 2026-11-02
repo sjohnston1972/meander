@@ -270,19 +270,26 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
 }
 
 // Carve a braided reach: several shallow threads wandering across a wide
-// gravel braidplain about the river's axis. `braid` holds each thread's
-// signed offset from the axis per axis point, the thread width and the belt
-// half-width. Ground inside the belt between threads becomes low gravel bars;
-// older, higher ground there is planed down; floods strip plants off the bars.
+// gravel braidplain about the river's axis. Threads are carved along their own
+// polylines (braid.tx / braid.ty, the same points the renderer draws water
+// on), so water and channel always line up. Ground inside the belt between
+// threads becomes low gravel bars, rising with distance from the nearest
+// thread; older, higher ground there is planed down; floods strip plants.
 export function stampBraided(grid, river, braid, settings, flood) {
   const { x, y, level } = river;
   const W = settings.channelWidth, D = effectiveDepth(settings);
-  const { offsets, width: w, widths, half } = braid;
-  const N = offsets.length;
-  const hw = w / 2;
+  const { tx, ty, width: w, widths, half } = braid;
+  const N = tx.length;
   const td = Math.max(FLOODPLAIN.edgeDepth + 0.1, D * BRAID.threadDepthFraction);
-  const hws = Array.from(widths, (v) => v / 2);
   const { height, base, surface, veg, channel, chanLevel, lakeLost } = grid;
+  const n = height.length;
+  if (!grid.braidEdge || grid.braidEdge.length !== n) {
+    grid.braidEdge = new Float32Array(n).fill(Infinity); // metres outside the nearest thread (negative inside)
+    grid.braidLvl = new Float32Array(n);                 // water level of that thread there
+    grid.braidDeep = new Float32Array(n);                // water depth there, if inside
+  }
+  const edgeOf = grid.braidEdge, lvlOf = grid.braidLvl, deepOf = grid.braidDeep;
+  const touched = [];
   const prevList = grid.chanList;
   for (const i of prevList) if (channel[i] === 1) channel[i] = 3;
   const list = [];
@@ -290,33 +297,28 @@ export function stampBraided(grid, river, braid, settings, flood) {
   const plane = BRAID.planeRate * river.dt;
   const rise = W * BRAID.barRiseWidths;
 
-  forCellsNear(grid, x, y, half + hw, (i, u, t, s) => {
-    const lvl = level[s] + (level[s + 1] - level[s]) * t;
-    // Distance outside the nearest thread's edge (negative inside it), and
-    // where inside a thread, how far from its centre (q) and its size.
-    let edge = Infinity, q = 1, size = 1;
-    for (let k = 0; k < N; k++) {
-      const o = offsets[k][s] + (offsets[k][s + 1] - offsets[k][s]) * t;
-      const d = Math.abs(u - o);
-      if (d - hws[k] < edge) { edge = d - hws[k]; q = d / hws[k]; size = hws[k] / hw; }
-    }
-    if (edge <= 0) {
-      if (channel[i] === 2) lakeLost[i] = 1;
-      // Wider threads run deeper.
-      const deep = FLOODPLAIN.edgeDepth + (td * Math.min(1.5, size) - FLOODPLAIN.edgeDepth) * (1 - q * q);
-      height[i] = lvl - Math.max(FLOODPLAIN.edgeDepth, deep);
-      channel[i] = 1;
-      list.push(i);
-      chanLevel[i] = lvl;
-      const localBase = lvl - D + settings.bankHeight;
-      if (localBase < base[i]) base[i] = localBase;
-      surface[i] = SURFACE.WATER;
-      veg[i] = 0;
-      return;
-    }
-    if (channel[i] === 2 || Math.abs(u) > half) return;
-    // Braidplain between threads: bars rise from the water's edge to a low top.
-    const k = Math.min(1, edge / rise);
+  // 1. Each thread: how far every nearby cell is from its edge.
+  for (let k = 0; k < N; k++) {
+    const hw = widths[k] / 2;
+    const size = Math.min(1.5, widths[k] / w); // wider threads run deeper
+    forCellsNear(grid, tx[k], ty[k], hw + rise, (i, u, t, s) => {
+      const d = Math.abs(u);
+      const e = d - hw;
+      if (e >= edgeOf[i]) return;
+      if (edgeOf[i] === Infinity) touched.push(i);
+      edgeOf[i] = e;
+      lvlOf[i] = level[s] + (level[s + 1] - level[s]) * t;
+      const q = d / hw;
+      deepOf[i] = Math.max(FLOODPLAIN.edgeDepth, FLOODPLAIN.edgeDepth + (td * size - FLOODPLAIN.edgeDepth) * (1 - q * q));
+    });
+  }
+
+  // 2. The belt between threads: gravel bars, planing, fresh gravel.
+  forCellsNear(grid, x, y, half, (i, u, t, s) => {
+    if (channel[i] === 2 || edgeOf[i] <= 0) return;
+    const near = edgeOf[i] !== Infinity;
+    const lvl = near ? lvlOf[i] : level[s] + (level[s + 1] - level[s]) * t;
+    const k = near ? Math.min(1, edgeOf[i] / rise) : 1;
     const top = lvl + BRAID.barLow + (BRAID.barHigh - BRAID.barLow) * k * k * (3 - 2 * k);
     const localBase = lvl - D + settings.bankHeight;
     if (localBase < base[i]) base[i] = localBase;
@@ -336,7 +338,24 @@ export function stampBraided(grid, river, braid, settings, flood) {
     veg[i] *= scour;
   });
 
-  // Threads that left the belt altogether (the axis moved) leave gravel too.
+  // 3. The threads themselves.
+  for (const i of touched) {
+    if (edgeOf[i] <= 0) {
+      const lvl = lvlOf[i];
+      if (channel[i] === 2) lakeLost[i] = 1;
+      height[i] = lvl - deepOf[i];
+      channel[i] = 1;
+      list.push(i);
+      chanLevel[i] = lvl;
+      const localBase = lvl - D + settings.bankHeight;
+      if (localBase < base[i]) base[i] = localBase;
+      surface[i] = SURFACE.WATER;
+      veg[i] = 0;
+    }
+    edgeOf[i] = Infinity;
+  }
+
+  // Thread cells left outside the belt (the axis moved) become gravel too.
   for (const i of prevList) {
     if (channel[i] === 3) {
       channel[i] = 0;

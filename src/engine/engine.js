@@ -214,7 +214,20 @@ export class Engine {
         offsets[k][i] = o;
       }
     }
-    this.threads = { offsets, width, widths, half };
+    // Thread polylines: the axis offset along its right-hand normal.
+    const tx = [], ty = [];
+    for (let k = 0; k < N; k++) { tx.push(new Float64Array(n)); ty.push(new Float64Array(n)); }
+    for (let i = 0; i < n; i++) {
+      const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
+      const dx = this.x[i1] - this.x[i0], dy = this.y[i1] - this.y[i0];
+      const l = hypot(dx, dy) || 1;
+      const nx = dy / l, ny = -dx / l;
+      for (let k = 0; k < N; k++) {
+        tx[k][i] = this.x[i] + nx * offsets[k][i];
+        ty[k][i] = Math.min(VALLEY.width, Math.max(0, this.y[i] + ny * offsets[k][i]));
+      }
+    }
+    this.threads = { offsets, tx, ty, width, widths, half };
   }
 
   triggerFlood() { this.floodPending = true; }
@@ -636,24 +649,12 @@ export class Engine {
 
   // Thread polylines for the renderer, each with its width per point.
   braidSnapshot() {
-    const { offsets, width, widths } = this.threads;
+    const { tx, ty, width, widths, half } = this.threads;
     const n = this.x.length;
-    const threads = offsets.map(() => ({ x: new Float32Array(n), y: new Float32Array(n), width: new Float32Array(n) }));
-    for (let i = 0; i < n; i++) {
-      const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
-      const tx = this.x[i1] - this.x[i0], ty = this.y[i1] - this.y[i0];
-      const l = hypot(tx, ty) || 1;
-      const nx = ty / l, ny = -tx / l;
-      for (let k = 0; k < offsets.length; k++) {
-        const o = offsets[k][i];
-        const t = threads[k];
-        t.x[i] = this.x[i] + nx * o;
-        t.y[i] = Math.min(VALLEY.width, Math.max(0, this.y[i] + ny * o));
-        t.width[i] = widths[k];
-      }
-    }
-    return { amount: this.braid, half: this.threads.half, threadWidth: width, threads };
+    const threads = tx.map((xs, k) => ({ x: Float32Array.from(xs), y: Float32Array.from(ty[k]), width: new Float32Array(n).fill(widths[k]) }));
+    return { amount: this.braid, half, threadWidth: width, threads };
   }
+
 
   // History trails for the configured ages.
   trails() {

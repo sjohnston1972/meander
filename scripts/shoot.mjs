@@ -1,8 +1,10 @@
 // Screenshot harness for look tuning. Usage: node scripts/shoot.mjs <label> [--tod]
 // Builds the site, serves dist/, runs the river to year 900 in headless
-// Chromium and saves docs/looks/<label>-<preset>.png for camera presets 1-4
-// plus an Explain-mode shot. Prints console errors and CPU timings of the
-// terrain and water updates. Exits non-zero on any console error.
+// Chromium and saves docs/looks/<label>-<preset>.png for camera presets 1-4,
+// an Explain-mode shot, a close-up on the sharpest bend (-6-closeup) and a
+// braided river at year 300 (-7-braided, -8-braided-close). Prints console
+// errors and CPU timings of the terrain and water updates. Exits non-zero on
+// any console error.
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { chromium } from 'playwright';
@@ -48,7 +50,7 @@ try {
   const errors = [];
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto(`http://localhost:${PORT}/?autoplay=0#seed=1`);
+  await page.goto(`http://localhost:${PORT}/?autoplay=0&fresh#seed=1`);
   const title = await page.title();
   if (!/Meander/.test(title)) throw new Error(`wrong page served on port ${PORT}: ${title}`);
   await page.waitForFunction(() => window.meander && window.meander.snapshot, null, { timeout: 30000 });
@@ -82,7 +84,24 @@ try {
   await page.keyboard.press('3');
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `docs/looks/${label}-5-labels.png`, timeout: 180000, animations: 'disabled' });
-  await page.evaluate(() => { window.meander.settings.showLabels = false; });
+  await page.evaluate(() => { window.meander.settings.showLabels = false; window.meander.controls.refresh(); });
+
+  // Close-up: about 150 m from a bend (the sharpest one when fraction < 0).
+  const closeUp = (fraction) => page.evaluate((f) => {
+    const m = window.meander;
+    const c = m.snapshot.centreline;
+    const n = c.x.length;
+    let best = Math.floor(n * f);
+    if (f < 0) { best = Math.floor(n * 0.1); for (let i = best; i < n * 0.9; i++) if (Math.abs(c.curvature[i]) > Math.abs(c.curvature[best])) best = i; }
+    const ex = m.settings.exaggeration;
+    const tx = c.x[best] - 3000, tz = c.y[best] - 1500, ty = c.level[best] * ex;
+    m.view.camera.position.set(tx - 90, ty + 55, tz + 110);
+    m.view.controls.target.set(tx, ty, tz);
+    m.view.controls.update();
+  }, fraction);
+  await closeUp(-1);
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `docs/looks/${label}-6-closeup.png`, timeout: 180000, animations: 'disabled' });
 
   if (withTod) {
     await page.keyboard.press('1');
@@ -92,6 +111,18 @@ try {
       await page.screenshot({ path: `docs/looks/${label}-tod-${h}.png`, timeout: 180000, animations: 'disabled' });
     }
   }
+
+  // A braided river (the preset's settings) at year 300.
+  await page.goto(`http://localhost:${PORT}/?autoplay=0&fresh#seed=1&pattern=braided&channelWidth=40&channelDepth=1.5&meanDischarge=150&valleySlope=0.004&sedimentSupply=2.5&erodibility=2&bankHeight=2.5&patchiness=0.3&vegGrowth=0.6&rootStrength=0.3&floodFrequency=10`);
+  await page.waitForFunction(() => window.meander && window.meander.snapshot, null, { timeout: 30000 });
+  await page.evaluate(() => { window.meander.sim.step(300); });
+  await page.waitForFunction(() => window.meander.snapshot && window.meander.snapshot.year >= 300, null, { timeout: 120000 });
+  await page.keyboard.press('2');
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `docs/looks/${label}-7-braided.png`, timeout: 180000, animations: 'disabled' });
+  await closeUp(0.5);
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `docs/looks/${label}-8-braided-close.png`, timeout: 180000, animations: 'disabled' });
 
   console.log(`[shoot] ${label}: year ${YEAR}, ${timings.points} points, grid ${timings.grid}`);
   console.log(`[shoot] terrain.update ${timings.terrain.toFixed(2)} ms, water.update ${timings.water.toFixed(2)} ms`);

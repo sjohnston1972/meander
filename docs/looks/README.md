@@ -40,3 +40,27 @@ buffer uploads, so they are only useful relative to each other (terrain about
   grass is not. A warmer hemisphere ground colour at low sun would help.
 - The `-3-bend` preset frames the bend from further away in the harness than
   it does interactively; the camera preset itself was not changed.
+
+# Close-up pass, 2026-11-02
+
+`v11-before-*` and `v11-after-*` add three shots to the set: `-6-closeup`
+(about 150 m from the sharpest bend), `-7-braided` and `-8-braided-close`
+(the Braided gravel river preset at year 300). The "before" shots were taken
+just before the engine moved to its own deterministic maths, so the rivers in
+the two sets differ slightly in shape; compare the look, not the bends.
+
+| Change | Where it shows |
+| --- | --- |
+| Water ripples sized in metres (a 14 m tile) instead of channel widths, with mipmapped normals so far water stays calm | `-6-closeup`, `-3-bend` |
+| Fine ground detail: a grain texture and matching bumps tiling every 9 m, averaging out to the old tone from afar | `-6-closeup`, `-8-braided-close` |
+| Bend camera (key 3) about half as far away; on a braid it frames the middle of the gravel bed | `-3-bend`, `-5-labels` |
+| Dusk: stronger, warmer low sun, less blue fill, warm bounce light | `-tod-7`, `-tod-17` |
+| Braid threads drawn once per pixel with a stencil, so crossings are not darker and no edge stipple | `-7-braided`, `-8-braided-close` |
+
+Not changed: the stair-stepped outer bank where the water surface meets the
+grid at Medium quality. Splitting quads along their flatter diagonal everywhere
+cost about 1.5 ms per terrain update and did not visibly help; High quality
+halves the steps. Steep terrace scarps do use the flatter-diagonal split.
+
+Phone shots (`v11-phone-*`, from `node scripts/shoot-phone.mjs v11`): Pixel 7
+emulation with touch, Low quality, folded panel, touch toolbar, help sheet.
