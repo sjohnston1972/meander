@@ -123,15 +123,23 @@ function handle(m) {
       acc = 0;
       sendSnapshot();
       break;
-    case 'restore':
+    case 'restore': {
       // A river from a file, already checked on the main thread.
       generation = m.generation ?? generation + 1;
-      engine = Engine.fromState(m.state);
+      let loaded;
+      try { validateState(m.state); loaded = Engine.fromState(m.state); } catch (err) {
+        postMessage({ type: 'restoreFailed', message: String(err.message || err) });
+        sendSnapshot(); // the old river carries on, under the new generation
+        break;
+      }
+      engine = loaded;
       riverId = newRiverId();
       lastSavedYear = -1;
       acc = 0;
+      postMessage({ type: 'restored', settings: engine.settings, year: engine.year, from: 'file' });
       sendSnapshot();
       break;
+    }
     case 'restoreSlot':
       generation = m.generation ?? generation + 1;
       exclusive(() => loadSlot(m.slot));

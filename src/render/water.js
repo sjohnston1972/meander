@@ -39,14 +39,14 @@ function makeNormalMap(size = 256) {
   return tex;
 }
 
-function makeRibbon(material) {
-  const n = MAX_POINTS * ACROSS;
+function makeRibbon(material, capacity = MAX_POINTS) {
+  const n = capacity * ACROSS;
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
   geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2));
-  const idx = new Uint32Array((MAX_POINTS - 1) * (ACROSS - 1) * 6);
+  const idx = new Uint32Array((capacity - 1) * (ACROSS - 1) * 6);
   geometry.setIndex(new THREE.BufferAttribute(idx, 1));
   const nor = geometry.attributes.normal.array;
   for (let i = 0; i < n; i++) nor[i * 3 + 1] = 1;
@@ -108,7 +108,7 @@ function writeRibbon(mesh, start, x, y, level, width, exaggeration, colourFn, ar
   return start + n;
 }
 
-function finishRibbon(mesh, points, segmentsUsed) {
+function finishRibbon(mesh, points, segmentsUsed, layout = points) {
   const g = mesh.geometry;
   g.setDrawRange(0, segmentsUsed * (ACROSS - 1) * 6);
   const verts = points * ACROSS;
@@ -118,9 +118,9 @@ function finishRibbon(mesh, points, segmentsUsed) {
     a.addUpdateRange(0, verts * size);
     a.needsUpdate = true;
   }
-  if (mesh.userData.indexedPoints !== points) {
+  if (mesh.userData.indexedPoints !== layout) {
     g.index.needsUpdate = true;
-    mesh.userData.indexedPoints = points;
+    mesh.userData.indexedPoints = layout;
   }
   mesh.visible = points > 1;
 }
@@ -150,7 +150,8 @@ export function createWater() {
     stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc,
     stencilZPass: THREE.ReplaceStencilOp, stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp,
   });
-  const threads = makeRibbon(threadMaterial);
+  const THREAD_CAPACITY = MAX_POINTS * 6; // up to six threads of a long river
+  const threads = makeRibbon(threadMaterial, THREAD_CAPACITY);
   threads.renderOrder = 2;
   threads.visible = false;
   const lakes = new Map();
@@ -249,9 +250,9 @@ export function createWater() {
       };
       let start = 0;
       for (const t of braid.threads) {
-        start = writeRibbon(threads, start, t.x, t.y, c.level, t.width, exaggeration, threadColour, 0, 0.06 + floodLift);
+        start = writeRibbon(threads, start, t.x, t.y, c.level, t.width, exaggeration, threadColour, 0, 0.06 + floodLift, THREAD_CAPACITY);
       }
-      finishRibbon(threads, start, Math.max(0, start - 1));
+      finishRibbon(threads, start, Math.max(0, start - 1), `${braid.threads.length}x${c.x.length}`);
     } else {
       threads.visible = false;
     }

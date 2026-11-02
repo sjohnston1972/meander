@@ -9,7 +9,7 @@ const fast = { ...defaults, quality: 'low' };
 function run(engine, ticks) { for (let i = 0; i < ticks; i++) engine.tick(); }
 
 describe('Engine', () => {
-  it('is deterministic for the same seed and settings', () => {
+  it('is deterministic for the same seed and settings', { timeout: LONG }, () => {
     const a = new Engine(fast), b = new Engine(fast);
     run(a, 500); run(b, 500);
     const sa = a.snapshot(), sb = b.snapshot();

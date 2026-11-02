@@ -2,9 +2,23 @@
 // compressed when the browser can (CompressionStream); plain files open too.
 import { encodeSave, decodeSave } from '../engine/savefile.js';
 
+const MAX_BYTES = 256 * 1024 * 1024; // a High-quality save is about 20 MB
+
 async function pipe(bytes, stream) {
-  const out = new Response(new Blob([bytes]).stream().pipeThrough(stream));
-  return new Uint8Array(await out.arrayBuffer());
+  const reader = new Blob([bytes]).stream().pipeThrough(stream).getReader();
+  const parts = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > MAX_BYTES) { reader.cancel(); throw new Error('file is too large'); }
+    parts.push(value);
+  }
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
 }
 
 export async function packRiver(state) {
@@ -14,6 +28,7 @@ export async function packRiver(state) {
 }
 
 export async function unpackRiver(bytes) {
+  if (bytes.length > MAX_BYTES) throw new Error('file is too large');
   let raw = bytes;
   if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
     if (typeof DecompressionStream === 'undefined') throw new Error('this browser cannot open compressed saves');

@@ -23,3 +23,9 @@ export function sanitizeSettings(raw, defaults) {
   }
   return out;
 }
+
+// Touch screens start at Low quality, unless a link names the river: the grid
+// size changes the river, so a shared link must keep its quality.
+export function startQuality(settings, { touch, fromLink }) {
+  return touch && !fromLink ? 'low' : settings.quality;
+}

@@ -17,7 +17,7 @@ import { decodeSettings, copyLink, saveScreenshot } from './ui/share.js';
 import { packRiver, unpackRiver, download, pickFile } from './ui/files.js';
 import { createRecorder, recordingSupported } from './ui/recorder.js';
 import { getMeta } from './storage.js';
-import { sanitizeSettings } from './settings.js';
+import { sanitizeSettings, startQuality } from './settings.js';
 
 // Phones and tablets: a coarse pointer (a finger) means touch controls, the
 // Low quality grid by default and a capped pixel ratio.
@@ -33,8 +33,12 @@ const braided = (snap) => !!snap?.braid && snap.braid.amount >= 0.5;
 
 async function start() {
   const settings = decodeSettings(location.hash, defaults);
-  const fromLink = location.hash.length > 1;
-  if (touch && !/(^|[#&])quality=/.test(location.hash)) settings.quality = 'low';
+  // "Copy link" writes the settings into the address bar; reloading that tab
+  // should still resume the river, so a hash this tab wrote is not a link.
+  let ownHash = null;
+  try { ownHash = sessionStorage.getItem('meander-own-hash'); } catch {}
+  const fromLink = location.hash.length > 1 && location.hash !== ownHash;
+  settings.quality = startQuality(settings, { touch, fromLink });
   document.body.classList.toggle('touch', touch);
   // Carry on with the autosaved river unless a link names a river, or the
   // URL says ?fresh.
@@ -118,6 +122,7 @@ async function start() {
     view.setQuality(settings.quality);
     view.setTimeOfDay(settings.timeOfDay);
     view.setFog(settings.fog);
+    sim.setSpeed(settings.yearsPerSecond);
     view.controls.enabled = true;
     canvas.style.cursor = '';
     snapshot = null; // rebuild everything from the next snapshot
@@ -182,6 +187,7 @@ async function start() {
     },
     async copyLink() {
       const ok = await copyLink(settings, defaults);
+      try { sessionStorage.setItem('meander-own-hash', location.hash); } catch {}
       toast(ok ? 'Link copied to the clipboard' : 'Link is in the address bar (clipboard blocked)');
     },
     screenshot() {
@@ -209,8 +215,7 @@ async function start() {
       if (!bytes) return;
       let state;
       try { state = await unpackRiver(bytes); } catch (err) { toast(`Could not open that file: ${err.message}`); return; }
-      sim.restore(state);
-      adoptRiver(state.settings, state.year, 'file');
+      sim.restore(state); // the worker answers 'restored' (adopted below) or 'restoreFailed'
     },
     async restorePrevious() {
       if (!(await getMeta()).previous) { toast('No earlier river is saved yet. One is kept when you start a new river after 100 years'); return; }

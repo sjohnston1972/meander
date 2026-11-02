@@ -12,17 +12,21 @@ export function newRiverId() {
 }
 
 export async function writeAutosave(engine, riverId) {
+  // Take the river now: the engine may be reset while we wait on storage.
+  const info = { riverId, year: engine.year, seed: engine.settings.seed, savedAt: Date.now() };
+  const state = engine.serialize();
   const meta = await getMeta();
   const cur = meta.autosave;
-  if (cur && cur.riverId !== riverId && cur.year >= KEEP_PREVIOUS_YEARS) {
+  // The river being replaced becomes 'previous' if it ran long enough, unless
+  // a longer-run river is already kept there.
+  if (cur && cur.riverId !== riverId && cur.year >= KEEP_PREVIOUS_YEARS && !(meta.previous && meta.previous.year > cur.year)) {
     const old = await getSlot('autosave');
     if (old) {
       await putSlot('previous', old);
       meta.previous = cur;
     }
   }
-  const info = { riverId, year: engine.year, seed: engine.settings.seed, savedAt: Date.now() };
-  const ok = await putSlot('autosave', { ...info, state: engine.serialize() });
+  const ok = await putSlot('autosave', { ...info, state });
   if (ok) {
     meta.autosave = info;
     await putSlot('meta', meta);

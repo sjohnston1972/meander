@@ -6,7 +6,7 @@
 // { $ta: type, o: byte offset, n: length } into the data block. Infinity and
 // -Infinity (JSON cannot hold them) are written as { $num: 'inf' | '-inf' }.
 // Compression (gzip) is left to the caller, since it is async in browsers.
-import { QUALITY, defaults } from '../config.js';
+import { QUALITY, VALLEY, defaults } from '../config.js';
 import { sanitizeSettings } from '../settings.js';
 
 export const SAVE_VERSION = 1;
@@ -47,6 +47,7 @@ export function decodeSave(bytes) {
   if (12 + len > bytes.length) throw new Error('save is truncated');
   const start = Math.ceil((12 + len) / 8) * 8;
   const data = bytes.slice(start); // own, aligned buffer
+  let copied = 0; // a header may not reference more bytes than the file holds
   let header;
   try { header = new TextDecoder().decode(bytes.subarray(12, 12 + len)); } catch { throw new Error('save header unreadable'); }
   const state = JSON.parse(header, (key, value) => {
@@ -56,6 +57,8 @@ export function decodeSave(bytes) {
       if (!T || !Number.isInteger(o) || !Number.isInteger(n) || o < 0 || n < 0 || o % 8 !== 0 || o + n * T.BYTES_PER_ELEMENT > data.length) {
         throw new Error('save array out of range');
       }
+      copied += n * T.BYTES_PER_ELEMENT;
+      if (copied > data.length + 64) throw new Error('save arrays overlap');
       return new T(data.buffer, o, n).slice();
     }
     if (value && typeof value === 'object' && value.$num) return value.$num === 'inf' ? Infinity : -Infinity;
@@ -69,29 +72,56 @@ export function decodeSave(bytes) {
 // are clamped in place.
 export function validateState(state) {
   const fail = (what) => { throw new Error(`save is damaged: ${what}`); };
+  const num = (v, lo, hi) => typeof v === 'number' && v >= lo && v <= hi; // false for NaN and text
+  const finite = (a) => ArrayBuffer.isView(a) && a.every(Number.isFinite);
   if (!state || typeof state !== 'object') fail('no state');
   if (state.version !== SAVE_VERSION) throw new Error(`save is from a different version (${state.version})`);
   state.settings = sanitizeSettings(state.settings, defaults);
-  const q = QUALITY[state.settings.quality];
+  const s = state.settings;
+  const q = QUALITY[s.quality];
   const g = state.grid;
   if (!g || g.cols !== q.cols || g.rows !== q.rows) fail('grid size');
+  if (g.cell !== VALLEY.length / g.cols) fail('grid cell size');
+  if (!num(g.slope, 0, 1) || !num(g.bankHeight, 0, 100) || !num(g.alluvium, 0, 1000)) fail('grid reference levels');
   const n = g.cols * g.rows;
   for (const k of ['height', 'base', 'relief', 'surface', 'patch', 'rock', 'veg', 'channel', 'lakeLost', 'chanLevel', 'bedrock']) {
     if (!ArrayBuffer.isView(g[k]) || g[k].length !== n) fail(`grid ${k}`);
   }
-  if (!(g.chanList instanceof Int32Array) || g.chanList.some((i) => i < 0 || i >= n)) fail('grid channel list');
-  const finite = (a) => ArrayBuffer.isView(a) && a.every(Number.isFinite);
-  if (!finite(state.x) || !finite(state.y) || state.x.length !== state.y.length || state.x.length < 16) fail('centreline');
-  for (const k of ['rate', 'curv', 'level']) if (!ArrayBuffer.isView(state[k])) fail(k);
-  if (!Array.isArray(state.oxbows) || !Array.isArray(state.history)) fail('lists');
+  for (const k of ['height', 'base', 'relief', 'patch', 'veg', 'chanLevel', 'bedrock']) if (!finite(g[k])) fail(`grid ${k} values`);
+  if (!(g.chanList instanceof Int32Array) || g.chanList.length > n || g.chanList.some((i) => i < 0 || i >= n)) fail('grid channel list');
+
+  // The river: inside the valley, a sane number of points, per-point arrays to match.
+  const inside = (xs, ys) => xs.every((v) => num(v, -1, VALLEY.length + 1)) && ys.every((v) => num(v, -1, VALLEY.width + 1));
+  const n0 = state.x?.length;
+  if (!finite(state.x) || !finite(state.y) || state.y.length !== n0 || n0 < 16 || n0 > 50000) fail('centreline');
+  if (!inside(state.x, state.y)) fail('centreline outside the valley');
+  // rate and curvature are from before the last re-spacing, so their length may
+  // differ (the engine checks before using them); the water level must match.
+  for (const k of ['rate', 'curv']) if (!finite(state[k]) || state[k].length > 50000) fail(k);
+  if (!finite(state.level) || state.level.length !== n0) fail('level');
+
+  if (!Array.isArray(state.oxbows) || state.oxbows.length > 5000 || !Array.isArray(state.history) || state.history.length > 1000) fail('lists');
   for (const o of state.oxbows) {
-    if (!finite(o.x) || !finite(o.y) || !(o.cells instanceof Int32Array) || o.cells.some((i) => i < 0 || i >= n)) fail('oxbow');
+    if (!finite(o.x) || !finite(o.y) || o.x.length !== o.y.length || o.x.length > 50000 || !inside(o.x, o.y)) fail('oxbow');
+    if (!(o.cells instanceof Int32Array) || o.cells.some((i) => i < 0 || i >= n)) fail('oxbow cells');
+    for (const k of ['id', 'age', 'depth', 'width', 'year', 'cx', 'cy', 'level', 'lastStampDepth']) if (!num(o[k], -1e6, 1e9)) fail(`oxbow ${k}`);
   }
-  for (const h of state.history) if (!finite(h.x) || !finite(h.y) || h.x.length !== h.y.length) fail('history');
-  for (const k of ['year', 'tickCount', 'incision', 'discharge']) if (!Number.isFinite(state[k])) fail(k);
-  if (!state.rng || !Number.isFinite(state.rng.state)) fail('random state');
-  if (!Number.isFinite(g.alluvium)) fail('alluvium');
-  if (state.braid !== undefined && !(state.braid >= 0 && state.braid <= 1)) fail('braid');
-  if (state.braidTime !== undefined && !Number.isFinite(state.braidTime)) fail('braid time');
-  if (!Array.isArray(state.knickpoints) || state.knickpoints.some((k) => !Number.isFinite(k.pos) || !Number.isFinite(k.drop))) fail('knickpoints');
+  for (const h of state.history) {
+    if (!num(h.year, -1, 1e9) || !finite(h.x) || !finite(h.y) || h.x.length !== h.y.length || h.x.length > 50000) fail('history');
+  }
+
+  // Scalars, each within what the engine can produce.
+  if (!num(state.year, 0, 1e9) || !Number.isInteger(state.tickCount) || state.tickCount < 0) fail('year');
+  if (!num(state.discharge, 0, s.meanDischarge * 100)) fail('discharge');
+  if (!num(state.incision, 0, 1e5)) fail('incision');
+  if (!num(state.landDt, 0, 100)) fail('land step');
+  if (!num(state.flood, 0, 1) || !num(state.floodRemaining, -1, 100) || typeof state.floodPending !== 'boolean') fail('flood');
+  if (!num(state.yearDischargeAt, -1, 1e9) || !Number.isInteger(state.yearDischargeAt)) fail('discharge year');
+  if (!num(state.oxbowCount, 0, 1e9) || !num(state.lastHistoryYear, -Infinity, 1e9)) fail('counters');
+  if (!state.rng || !Number.isInteger(state.rng.state) || state.rng.state < 0 || state.rng.state > 0xffffffff) fail('random state');
+  if (!(state.rng.spare === null || state.rng.spare === undefined || Number.isFinite(state.rng.spare))) fail('random state');
+  if (state.braid !== undefined && !num(state.braid, 0, 1)) fail('braid');
+  if (state.braidTime !== undefined && !num(state.braidTime, 0, 1e9)) fail('braid time');
+  if (!Array.isArray(state.knickpoints) || state.knickpoints.length > 1000
+    || state.knickpoints.some((k) => !num(k.pos, 0, 1e7) || !num(k.drop, 0, 1000))) fail('knickpoints');
 }
