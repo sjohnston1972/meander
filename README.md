@@ -15,6 +15,10 @@ Live at **https://meander.clydeford.net**. Works in desktop browsers and on phon
 - The valley's end can be a lake (Channel, Valley end): the river builds a delta into it with everything it carries, its distributaries switching course now and then, until the lake is full.
 - A tributary (Channel, Tributary) comes in from a valley wall, winds and cuts off loops of its own, builds a fan where it comes out of the hills, and drops gravel at the junction that pushes the main river aside. Below the junction the main river has more water.
 - Climate swings (Flow, Climate swings) bring wet and dry periods over the centuries: more water, floods and sediment, then less. An Auto river can braid in the wet periods and meander in the dry ones.
+- Grain sorting: the bed sorts itself. Where it builds up, gravel drops first (so the river gets sandier downstream and its bars change from gravel to sand); where it is scoured, the sand goes first and leaves a coarse armour, as below a dam. The cross-section says what the bed is made of.
+- Wood in the river (Vegetation, Log jams and Beavers): trees from eroding wooded banks jam smaller rivers, backing the water up and pushing the river aside until they rot or wash out. Beavers dam channels up to 25 m wide, flooding ponds that become meadows when they leave, and keep oxbow lakes open with lodges.
+- Engineering: straighten a reach, build a weir, a bridge or flood embankments by clicking on the river, then watch what the river does; or take them all away again.
+- Guided scenarios set up a river, play it and explain what happens, step by step: an oxbow forming, a gorge and its terraces, a landslide lake, a delta, a tributary, climate swings, a channelised river, beavers and log jams.
 - Show, Graphs over time draws the river's history: how winding it is, sediment leaving, bed level, oxbow lakes, flow, climate and braiding.
 - Braided rivers: switch the channel pattern to Braided (or Auto, which braids steep, sediment-rich rivers) and the river spreads into shallow threads that split and rejoin across a wide gravel bed, shifting with every flood.
 - A grouped control panel changes flow, slope, bank strength, vegetation, floods and speed. Explain mode labels features and says how each one formed.
@@ -29,7 +33,8 @@ The model is physically inspired and tuned to look right. It is not a validated 
 ```
 npm install
 npm run dev        # local preview
-npm test           # engine unit tests
+npm test           # engine unit tests (about 8 minutes)
+npm run test:quick # the same without the slowest files (about 2 minutes)
 npm run build      # bundle to dist/
 npm run deploy     # build and deploy to Cloudflare
 ```
@@ -117,9 +122,22 @@ Checked in Chrome on the live site unless noted. "Unit test" means `npm test` co
 - Graphs over time: a row every 5 years, thinned when long, saved with the river; small charts with a shared hover readout and a CSV download. `src/engine/stats.js`, `src/ui/graphs.js`.
 - All four are off by default, so default rivers and old links are unchanged.
 
+## Changes in v1.5 (2026-11-02): grain sorting, log jams, beavers
+
+- Grain sorting: each point of the bed has a gravel fraction in its surface layer (0.5 m thick). Marching down the river with the gravel in the load: deposits are coarser than the load (gravel drops first), scour takes sand first (armour); armoured beds carry less, sandy ones more. Bars left behind are gravel where the bed is gravelly. It acts only where the sediment budget is out of balance, so default rivers are unchanged.
+- Log jams (`src/engine/jams.js`): wood from banks eroding faster than 0.3 m/yr under plant cover; commoner on rivers 40 m wide or less; each backs the water up to 1.4 m (fading over up to 1.5 km upstream), pushes the river towards the other bank, wets low ground above it, and rots in 25-90 years or washes out in a flood.
+- Beavers: dams on the river (if 25 m wide or less) and on the tributary (likewise), kept in repair for 20-60 years, their ponds held within a set distance of the dam; old ponds become wet meadow (marsh); lodges in oxbow lakes slow their infill to 40%. Logs, dams and lodges are drawn.
+
+## Changes in v1.6 (2026-11-02): engineering, guided scenarios, housekeeping
+
+- Engineering (`src/engine/works.js`, Engineering in the panel, then click on the river): straighten 1.2 km (a cut that leaves the old bends as an oxbow, with stone-lined banks the river cannot move or cut off), a weir (a 1.5 m concrete dam that never wears away: its pool fills, the river below runs clear and armours), a bridge (its abutments hold the river), flood embankments (ridges 2.5 m high either side of 1.6 km of river). Remove all works takes them away again. Works are saved with the river (not in share links).
+- Guided scenarios (`src/ui/scenarios.js`): eight set-ups with captions that move on with the years and with events.
+- Two new presets: River into a lake, and Wooded stream with beavers.
+- Housekeeping: the Landslide button no longer disturbs the river's randomness when there is nothing to slide; pond meshes are keyed on every flooded cell; saves refuse duplicate dam ids and values the engine never makes; `npm run test:quick` skips the slowest test files (about 2 minutes instead of 8).
+
 ## Future work
 
-Knickpoints in braided rivers; braid threads that respond to local bars rather than wandering by noise. Grain sorting, log jams, beavers, engineering works and guided scenarios are planned in `docs/superpowers/plans/2026-11-02-v1.4-v1.6.md`.
+Knickpoints in braided rivers; braid threads that respond to local bars rather than wandering by noise; a tributary fan that draws on the sediment budget; floods confined by embankments.
 
 ## Licence
 

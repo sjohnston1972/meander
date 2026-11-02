@@ -21,6 +21,8 @@ const CASES = [
   { name: 'lake and delta', settings: { seed: 9, valleyEnd: 'lake', sedimentSupply: 2 }, ticks: 2400 },
   { name: 'tributary', settings: { seed: 10, tributary: 0.4 }, ticks: 2400 },
   { name: 'climate swings, auto pattern', settings: { seed: 11, climateSwing: 1, pattern: 'auto', valleySlope: 0.0028 }, ticks: 4000 },
+  { name: 'log jams and beavers', settings: { seed: 12, ...PRESETS['Wooded stream with beavers'] }, ticks: 2400 },
+  { name: 'works: straightened, weir, bridge', settings: { seed: 13 }, ticks: 2400, build: 800 },
 ];
 
 function runCase(EngineClass, base, fp, c) {
@@ -28,6 +30,7 @@ function runCase(EngineClass, base, fp, c) {
   for (let i = 0; i < c.ticks; i++) {
     if (c.drop === i) e.dropBaseLevel(2);
     if (c.slide === i) e.triggerLandslide();
+    if (c.build === i) for (const [kind, f] of [['straighten', 0.45], ['weir', 0.7], ['bridge', 0.25]]) { const k = Math.floor(e.x.length * f); e.build(kind, e.x[k], e.y[k]); }
     e.tick();
   }
   return fp(e);
@@ -58,6 +61,7 @@ try {
         for (let i = 0; i < c.ticks; i++) {
           if (c.drop === i) e.dropBaseLevel(2);
           if (c.slide === i) e.triggerLandslide();
+          if (c.build === i) for (const [kind, f] of [['straighten', 0.45], ['weir', 0.7], ['bridge', 0.25]]) { const k = Math.floor(e.x.length * f); e.build(kind, e.x[k], e.y[k]); }
           e.tick();
         }
         return fingerprint(e);

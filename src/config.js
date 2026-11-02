@@ -500,6 +500,13 @@ export const PRESETS = {
     sedimentSupply: 2.5, erodibility: 2, bankHeight: 2.5, patchiness: 0.3, vegGrowth: 0.6, rootStrength: 0.3,
     floodFrequency: 10,
   },
+  'River into a lake': {
+    valleyEnd: 'lake', sedimentSupply: 1.6, channelWidth: 55, meanDischarge: 120, floodFrequency: 5,
+  },
+  'Wooded stream with beavers': {
+    channelWidth: 22, channelDepth: 1.8, meanDischarge: 40, bankHeight: 3, vegGrowth: 1.4, rootStrength: 0.6,
+    logJams: true, beavers: true, tributary: 0.2,
+  },
   'Fast-migrating sandy river': {
     channelWidth: 70, channelDepth: 2.5, meanDischarge: 150, valleySlope: 0.0007,
     erodibility: 1.8, bankHeight: 3, patchiness: 0.3, vegGrowth: 0.5, rootStrength: 0.3,
