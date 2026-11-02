@@ -64,6 +64,7 @@ export class Engine {
     this.sediment = { out: 0, exported: 0, trapped: 0, stored: 0, inflow: 0, fromWalls: 0, fromSlides: 0, fromGullies: 0 };
     this.wash = null;           // fines passing each point, m^3/yr (null when there are none beyond the usual)
     this.loadExcess = 1;        // load leaving the valley over the load coming in from upstream (1 to maxLoadExcess)
+    this.loadRatio = null;      // load carried past each point over the load from upstream (null when in balance)
     this.q = this.settings.meanDischarge;
     this.grid = createGrid(this.settings, this.rng);
     this.landDt = 0;
@@ -125,6 +126,7 @@ export class Engine {
     this.sediment = { out: 0, exported: 0, trapped: 0, stored: 0, inflow: 0, fromWalls: 0, fromSlides: 0, fromGullies: 0, ...(st.sediment || {}) };
     this.wash = st.wash ? Float64Array.from(st.wash) : null;
     this.loadExcess = st.loadExcess ?? 1;
+    this.loadRatio = null;
     this.q = st.q ?? st.discharge;
     this.oxbows = st.oxbows.map((o) => ({ ...o, x: Float32Array.from(o.x), y: Float32Array.from(o.y), cells: Int32Array.from(o.cells) }));
     this.oxbowCount = st.oxbowCount;
@@ -433,6 +435,7 @@ export class Engine {
     if (!busy) {
       // In balance: everything that comes in goes straight through.
       this.loadExcess = 1;
+      this.loadRatio = null;
       sed.out = k * S[n - 2];
       sed.exported += sed.out * DT;
       sed.stored = 0;
@@ -451,6 +454,15 @@ export class Engine {
     sed.out = res.out;
     // More load than comes in from upstream (walls, landslides) makes a river likelier to braid.
     this.loadExcess = inflow > 0 ? Math.min(SEDIMENT.maxLoadExcess, Math.max(1, res.out / inflow)) : 1;
+    // The load carried past each point, as a multiple of what comes in from upstream.
+    const carried = this.loadRatio && this.loadRatio.length === n ? this.loadRatio : new Float64Array(n);
+    const cond = k / ds;
+    for (let f = 0; f < n - 1; f++) {
+      const flux = pool[f] ? 0 : k * S[f] - cond * (this.aggr[f + 1] - this.aggr[f]);
+      carried[f] = inflow > 0 ? Math.max(0, flux / inflow) : 1;
+    }
+    carried[n - 1] = inflow > 0 ? res.out / inflow : 1;
+    this.loadRatio = carried;
     sed.exported += res.out * DT;
     const cellVolume = (1 - SEDIMENT.porosity) * W * ds;
     let stored = 0, trapped = 0;
@@ -1031,8 +1043,35 @@ export class Engine {
       }
     }
     this.wallFeatures(out);
+    this.sedimentFeatures(out);
     if (this.flood > 0) out.push({ type: 'flood', x: this.x[Math.floor(n / 2)], y: this.y[Math.floor(n / 2)], level: this.level[Math.floor(n / 2)] + 1 });
     return out;
+  }
+
+  // Explain-mode features of the sediment budget: where the bed has built up
+  // most, where it has been scoured most, and deltas at the heads of lakes.
+  sedimentFeatures(out) {
+    const n = this.x.length;
+    if (this.aggr.length !== n) return;
+    const pool = this.dams.length ? this.pooledPoints() : null;
+    let hi = -1, lo = -1;
+    for (let i = CENTRELINE.endProtection; i < n - CENTRELINE.endProtection; i++) {
+      if (pool && pool[i]) continue;
+      if (hi < 0 || this.aggr[i] > this.aggr[hi]) hi = i;
+      if (lo < 0 || this.aggr[i] < this.aggr[lo]) lo = i;
+    }
+    if (hi >= 0 && this.aggr[hi] > 0.5) out.push({ type: 'aggrading', x: this.x[hi], y: this.y[hi], level: this.level[hi] });
+    if (lo >= 0 && this.aggr[lo] < -0.5) out.push({ type: 'scoured', x: this.x[lo], y: this.y[lo], level: this.level[lo] });
+    if (pool) {
+      for (let i = 0; i < n - 1; i++) {
+        if (pool[i] && this.aggr[i] > 0.3 && (i === 0 || !pool[i - 1] || this.aggr[i - 1] > 0.3)) {
+          let j = i;
+          while (j < n - 1 && pool[j + 1] && this.aggr[j + 1] > 0.3) j++;
+          out.push({ type: 'lakedelta', x: this.x[j], y: this.y[j], level: this.level[j] });
+          i = j;
+        }
+      }
+    }
   }
 
   // Explain-mode features of the valley walls: recent landslides, dams and
@@ -1154,6 +1193,12 @@ export class Engine {
       trails: this.trails(),
       features: this.features,
       braid: this.threads ? this.braidSnapshot() : null,
+      sediment: {
+        ...this.sediment,
+        bed: Float32Array.from(this.aggr),
+        load: this.loadRatio && this.loadRatio.length === n ? Float32Array.from(this.loadRatio) : null,
+        wash: this.wash && this.wash.length === n ? Float32Array.from(this.wash, (_, i) => this.washFactor(i)) : null,
+      },
       ponds: this.dams.map((d) => ({ id: d.id, level: d.crest, cells: d.cells })),
       grid: {
         cols: g.cols, rows: g.rows, cell: g.cell,

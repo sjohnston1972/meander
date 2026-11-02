@@ -185,4 +185,18 @@ describe('what the load does to the river', () => {
     for (let t = 0; t < 200; t++) { e.addSediment(e.x[8], e.y[8], 6e4, 0); e.tick(); } // about twice what comes from upstream
     expect(e.braid).toBeGreaterThan(0);
   });
+
+  it('shows up in Explain mode and in the snapshot', { timeout: LONG }, () => {
+    const e = new Engine({ ...defaults, quality: 'low', sedimentSupply: 3 });
+    run(e, 300);
+    expect(e.findFeatures().some((f) => f.type === 'aggrading')).toBe(true);
+    const snap = e.snapshot();
+    expect(snap.sediment.bed.length).toBe(snap.centreline.x.length);
+    expect(snap.sediment.load.length).toBe(snap.centreline.x.length);
+    expect(snap.sediment.load[5]).toBeGreaterThan(1);
+    expect(snap.sediment.out).toBeGreaterThan(0);
+    const starved = new Engine({ ...defaults, quality: 'low', sedimentSupply: 0 });
+    run(starved, 300);
+    expect(starved.findFeatures().some((f) => f.type === 'scoured')).toBe(true);
+  });
 });

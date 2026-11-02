@@ -52,6 +52,7 @@ export const defaults = {
   showThalweg: false,      // line of deepest flow
   showTrails: false,       // where the channel was 50, 100 and 200 years ago
   showLabels: false,       // Explain mode
+  showSediment: false,     // colour the river by its sediment load and show the sediment budget
   crossSectionOnClick: true,
   waterOpacity: 0.85,      // 0 = invisible, 1 = opaque
   exaggeration: 2,         // vertical exaggeration of the landscape
@@ -307,6 +308,9 @@ export const RENDER = {
   rockHardColour: 0xb7a184, // hard rock layers: pale buff cliffs
   rockSoftColour: 0x8a6a55, // soft rock layers: red-brown slopes
   pondColour: 0x3a6e78,    // landslide lake
+  siltColour: 0x8c7650,    // water clouded with fine sediment
+  clearColour: 0x8fd3e8,   // Sediment view: carrying less than comes in from upstream
+  loadedColour: 0x7a5530,  // Sediment view: carrying more
   foamColour: 0xdfeef0,    // white water over a knickpoint
   surfaceColours: {
     0: 0x5d8a3a,           // GRASS
@@ -396,7 +400,7 @@ export const HELP = {
   incisionRate: 'How fast the river cuts down, in metres per 1000 years. The old floodplain is left standing as terraces',
   dropBase: 'Lower the base level by 2 m now, as if the sea or the trunk river fell. A step (knickpoint) forms at the outlet and works its way upstream, leaving a terrace behind it',
   alluviumDepth: 'Depth of soft river sediment over bedrock. A river that cuts deeper than this meets rock, which erodes more slowly and shows in the terrace walls',
-  sedimentSupply: 'How quickly point bars and levees build. Lots of sediment on a steep valley makes a river braid',
+  sedimentSupply: 'How much sand and gravel comes into the valley from upstream (1 = as much as the river can carry), and how quickly bars and levees build. More than the river can carry builds its bed and floodplain up and makes it likelier to braid; less and it scours its bed',
   pattern: 'Meandering: one winding channel. Braided: many shallow threads splitting and rejoining across a wide gravel bed. Auto: braids when the valley is steep, the flow strong and the sediment plentiful',
   erodibility: 'How easily banks erode. 1 is soft lowland soil',
   bankHeight: 'Height of the floodplain above the channel bed in metres',
@@ -416,6 +420,7 @@ export const HELP = {
   showThalweg: 'Draw the line of deepest, fastest flow',
   showTrails: 'Show where the channel was 50, 100 and 200 years ago',
   showLabels: 'Explain mode: label features and say how they formed',
+  showSediment: 'Colour the river by how much sand and gravel it carries (clear blue: less than comes in from upstream; brown: more), and show how much leaves the valley',
   crossSectionOnClick: 'Click a point on the river to see the channel cross-section there',
   waterOpacity: 'How see-through the water is',
   exaggeration: 'Stretch heights so small features are easier to see',
@@ -524,6 +529,18 @@ export const EXPLANATIONS = {
   hangingloop: {
     title: 'Abandoned meander',
     text: 'A loop the river cut off while it was cutting down. The river is now below it, so its water drained away, leaving a dry curved valley high on the side.',
+  },
+  aggrading: {
+    title: 'Aggrading reach',
+    text: 'More sand and gravel arrives here than the river can carry on, so it drops the rest: the bed and the floodplain beside it build up, and the water stands higher.',
+  },
+  scoured: {
+    title: 'Scoured reach',
+    text: 'The river can carry more than reaches it here, so it picks up the difference from its own bed and cuts down, until it reaches bedrock.',
+  },
+  lakedelta: {
+    title: 'Lake delta',
+    text: 'Where the river runs into still water it slows and drops its sand and gravel, building a delta that grows out into the lake until the lake is full.',
   },
   flood: {
     title: 'Flood',

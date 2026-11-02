@@ -5,7 +5,7 @@ import { HELP, PRESETS, RESET_KEYS, RANGES } from '../config.js';
 
 // Which settings the renderer owns (everything else goes to the engine).
 const RENDER_KEYS = new Set([
-  'showParticles', 'showThalweg', 'showTrails', 'showLabels', 'crossSectionOnClick',
+  'showParticles', 'showThalweg', 'showTrails', 'showLabels', 'showSediment', 'crossSectionOnClick',
   'waterOpacity', 'exaggeration', 'timeOfDay', 'fog', 'vegDensity', 'paintRock',
 ]);
 
@@ -110,6 +110,7 @@ export function createControls(settings, actions) {
   const show = gui.addFolder('Show');
   add(show, 'showParticles').name('Helical flow particles');
   add(show, 'showThalweg').name('Thalweg line');
+  add(show, 'showSediment').name('Sediment load');
   add(show, 'showTrails').name('History trails');
   add(show, 'showLabels').name('Labels (Explain mode)');
   add(show, 'crossSectionOnClick').name('Cross-section on click');

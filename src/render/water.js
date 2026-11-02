@@ -12,6 +12,9 @@ const floodColour = new THREE.Color(RENDER.floodColour);
 const lakeColour = new THREE.Color(RENDER.lakeColour);
 const marshColour = new THREE.Color(RENDER.marshColour);
 const rimColour = new THREE.Color(0xa9d3dc);
+const siltColour = new THREE.Color(RENDER.siltColour);
+const clearColour = new THREE.Color(RENDER.clearColour);
+const loadedColour = new THREE.Color(RENDER.loadedColour);
 const tmp = new THREE.Color();
 
 // Procedural ripple normal map: a few overlapping sine waves.
@@ -230,6 +233,7 @@ export function createWater() {
 
   // Per-point cross-section for the cross-section panel and picking.
   let lastSnapshot = null;
+  let showSediment = false;
   let foam = null;
   const foamColour = new THREE.Color(RENDER.foamColour);
 
@@ -253,6 +257,9 @@ export function createWater() {
       const ratio = (c.level[a] - c.level[b]) / d / mean;
       foam[i] = ratio > 3 ? Math.min(1, (ratio - 3) / 5) : 0;
     }
+    const sed = snapshot.sediment;
+    const wash = sed?.wash;
+    const load = showSediment ? sed?.load : null;
     const colourFn = (i, u01) => {
       const depth = c.depth[i], mean = c.meanDepth;
       const bend = Math.min(1, (depth / mean - 1) / 0.8);
@@ -264,7 +271,14 @@ export function createWater() {
       // Faint lighter rim where the water meets the bank.
       if (u01 === 0 || u01 === 1) tmp.lerp(rimColour, 0.35);
       if (foam[i] > 0) tmp.lerp(foamColour, foam[i] * (0.55 + 0.25 * Math.sin(u01 * 9 + i)));
+      // Water clouded by fine sediment from walls, landslides and gullies.
+      if (wash && wash[i] > 1) tmp.lerp(siltColour, Math.min(0.65, (wash[i] - 1) * 0.25));
       tmp.lerp(floodColour, f * 0.85);
+      if (showSediment) {
+        const r = load ? load[i] : 1;
+        if (r < 1) tmp.lerp(clearColour, Math.min(0.85, (1 - r) * 1.7));
+        else tmp.lerp(loadedColour, Math.min(0.85, (r - 1) * 0.6));
+      }
     };
     // A braided reach narrows the single channel away as its threads spread.
     const braid = snapshot.braid;
@@ -391,5 +405,9 @@ export function createWater() {
     return Math.sqrt(bestD) < reach ? best : -1;
   }
 
-  return { group, river, flood, update, animate, nearestIndex, get lakeCount() { return lakes.size; } };
+  return {
+    group, river, flood, update, animate, nearestIndex,
+    setShowSediment(on) { showSediment = !!on; },
+    get lakeCount() { return lakes.size; },
+  };
 }

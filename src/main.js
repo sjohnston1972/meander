@@ -50,6 +50,7 @@ async function start() {
 
   const terrain = createTerrain();
   const water = createWater();
+  water.setShowSediment(settings.showSediment);
   const trails = createTrails(terrain);
   const particles = createParticles(QUALITY.high.particles);
   const vegetation = createVegetation(QUALITY.high.trees, QUALITY.high.grass);
@@ -65,6 +66,21 @@ async function start() {
   const sim = createSim(settings, { slot: resume ? 'autosave' : null });
 
   const hudYear = document.getElementById('year');
+  const hudSed = document.getElementById('sed-hud');
+  // The sediment budget in the corner, when the Sediment view is on.
+  const round = (v) => {
+    const a = Math.abs(v);
+    if (a >= 1e6) return `${(v / 1e6).toFixed(1)} million`;
+    return (Math.round(v / (a >= 1e4 ? 1000 : 100)) * (a >= 1e4 ? 1000 : 100)).toLocaleString();
+  };
+  function showSedimentHud(snap) {
+    const s = snap?.sediment;
+    if (!settings.showSediment || !s) { hudSed.textContent = ''; return; }
+    const lines = [`Sediment leaving the valley: ${round(s.out)} m³ a year`];
+    if (Math.abs(s.stored) > 500) lines.push(`${s.stored > 0 ? 'Built up in the bed' : 'Scoured from the bed'}: ${round(Math.abs(s.stored))} m³`);
+    if (s.trapped > 500) lines.push(`Trapped in landslide lakes: ${round(s.trapped)} m³`);
+    hudSed.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
+  }
   const hudFlood = document.getElementById('flood-hud');
   const hudRec = document.getElementById('rec-hud');
   const recorder = createRecorder(canvas);
@@ -103,6 +119,7 @@ async function start() {
     particles.setSnapshot(snap, quality().particles);
     section.refresh(snap);
     hudYear.textContent = `Year ${Math.floor(snap.year).toLocaleString()}`;
+    showSedimentHud(snap);
     controls.setYear(snap.year, snap.flood);
     for (const ev of snap.events) {
       const yr = Math.floor(ev.year);
@@ -127,6 +144,7 @@ async function start() {
     view.setTimeOfDay(settings.timeOfDay);
     view.setFog(settings.fog);
     sim.setSpeed(settings.yearsPerSecond);
+    water.setShowSediment(settings.showSediment);
     view.controls.enabled = true;
     canvas.style.cursor = '';
     snapshot = null; // rebuild everything from the next snapshot
@@ -177,6 +195,8 @@ async function start() {
       else if (key === 'fog') view.setFog(settings.fog);
       else if (key === 'paintRock') { view.controls.enabled = !settings.paintRock; canvas.style.cursor = settings.paintRock ? 'crosshair' : ''; }
       else if (snapshot) {
+        water.setShowSediment(settings.showSediment);
+        showSedimentHud(snapshot);
         refreshTerrain(true);
         water.update(snapshot, settings.exaggeration, settings.waterOpacity, floodVisual);
         trails.update(snapshot, settings.exaggeration, settings.showTrails, settings.showThalweg && !braided(snapshot));
