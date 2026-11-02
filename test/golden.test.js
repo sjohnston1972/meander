@@ -6,13 +6,14 @@ import { Engine } from '../src/engine/engine.js';
 import { defaults } from '../src/config.js';
 import { fingerprint } from './helpers.js';
 
-// 2026-11-02: seeds 2 and 3 re-pinned on purpose when the tall-bank rule was
-// limited to incising rivers (it had been slowing ordinary rivers whose water
-// profile sat low against the floodplain).
+// 2026-11-02: re-pinned on purpose twice: when the tall-bank rule was limited
+// to incising rivers, and when the engine moved to its own deterministic
+// maths (src/engine/dmath.js) so the same link gives the same river in every
+// browser. scripts/determinism.mjs checks Chromium, Firefox and WebKit.
 const GOLDEN = {
-  1: '851f79ba:414:0',
-  2: '8b4f528:348:1',
-  3: '93909112:251:0',
+  1: '10be64bd:414:0',
+  2: 'b2068e3a:348:1',
+  3: '5c5b5bb4:251:0',
 };
 
 describe('default rivers are unchanged', () => {

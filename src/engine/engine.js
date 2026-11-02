@@ -13,6 +13,7 @@ import {
 import {
   createGrid, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth, cellIndex, setAlluvium, relaxSlopes, stampBraided,
 } from './floodplain.js';
+import { exp, pow, hypot } from './dmath.js';
 
 export class Engine {
   constructor(settings) {
@@ -149,7 +150,7 @@ export class Engine {
   static bankFactor(actual, nominal) {
     const excess = actual - nominal - FLOODPLAIN.leveeMaxHeight;
     if (excess <= 0) return 1;
-    return Math.max(CENTRELINE.minBankFactor, Math.pow(nominal / (nominal + excess), CENTRELINE.bankHeightExponent));
+    return Math.max(CENTRELINE.minBankFactor, pow(nominal / (nominal + excess), CENTRELINE.bankHeightExponent));
   }
 
   static helpers = { sampleErodibility, effectiveDepth, bankFactor: Engine.bankFactor };
@@ -283,7 +284,7 @@ export class Engine {
     const y = this.y[i], x = this.x[i];
     const margin = CENTRELINE.wallMarginWidths * W;
     const edge = Math.min(y, VALLEY.width - y);
-    const wall = edge < margin ? Math.max(0, edge / margin) ** 2 : 1;
+    const wall = edge < margin ? (Math.max(0, edge / margin) * Math.max(0, edge / margin)) : 1;
     const outlet = CENTRELINE.outletFadeFraction * VALLEY.length;
     const toEnd = VALLEY.length - x;
     const exit = toEnd < outlet ? Math.max(0, toEnd / outlet) : 1;
@@ -291,7 +292,7 @@ export class Engine {
     const n = this.x.length;
     const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
     const tx = this.x[i1] - this.x[i0], ty = this.y[i1] - this.y[i0];
-    const l = Math.hypot(tx, ty) || 1;
+    const l = hypot(tx, ty) || 1;
     const side = this.curv[i] > 0 ? 1 : -1;
     const bx = x + (ty / l) * side * W * 0.5, by = y - (tx / l) * side * W * 0.5;
     const ground = sampleErodibility(this.grid, bx, by, s);
@@ -316,7 +317,7 @@ export class Engine {
     const yearIndex = Math.floor(this.year + 1e-9);
     if (yearIndex !== this.yearDischargeAt) {
       this.yearDischargeAt = yearIndex;
-      this.discharge = s.meanDischarge * Math.exp(this.rng.gaussian() * FLOODS.dischargeVariation);
+      this.discharge = s.meanDischarge * exp(this.rng.gaussian() * FLOODS.dischargeVariation);
       if (this.rng.chance(s.floodFrequency / 100)) this.floodPending = true;
     }
     if (this.floodPending) {
@@ -351,7 +352,7 @@ export class Engine {
     // 2. Migration rate.
     const n = this.x.length;
     const q = this.flood > 0 ? s.meanDischarge * (1 + (s.floodSize - 1) * this.flood) : this.discharge;
-    const qFactor = Math.pow(q / s.meanDischarge, CENTRELINE.dischargeExponent);
+    const qFactor = pow(q / s.meanDischarge, CENTRELINE.dischargeExponent);
     let base = s.erodibility * CENTRELINE.migrationScale * qFactor;
     if (this.braid > 0) base *= 1 - (1 - BRAID.migrationFactor) * this.braid; // the braidplain axis wanders slowly
     const k = new Float64Array(n);
@@ -512,7 +513,7 @@ export class Engine {
     const normal = (i) => {
       const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
       const dx = this.x[i1] - this.x[i0], dy = this.y[i1] - this.y[i0];
-      const l = Math.hypot(dx, dy) || 1;
+      const l = hypot(dx, dy) || 1;
       return [dy / l, -dx / l]; // right-hand normal
     };
     const cellAt = (x, y) => {
@@ -619,7 +620,7 @@ export class Engine {
       for (let k = 1; k < N; k++) if (o[k] - o[k - 1] > gap) { gap = o[k] - o[k - 1]; mid = (o[k] + o[k - 1]) / 2; }
       const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
       const tx = this.x[i1] - this.x[i0], ty = this.y[i1] - this.y[i0];
-      const l = Math.hypot(tx, ty) || 1;
+      const l = hypot(tx, ty) || 1;
       const nx = ty / l, ny = -tx / l;
       if (gap > width * 2.5) {
         out.push({ type: 'braidbar', x: this.x[i] + nx * mid, y: this.y[i] + ny * mid });
@@ -633,9 +634,7 @@ export class Engine {
     }
   }
 
-  // Thread polylines for the renderer. A thread that runs inside another
-  // (closer than about a width) narrows to nothing there, so merged threads
-  // are drawn once.
+  // Thread polylines for the renderer, each with its width per point.
   braidSnapshot() {
     const { offsets, width, widths } = this.threads;
     const n = this.x.length;
@@ -643,33 +642,14 @@ export class Engine {
     for (let i = 0; i < n; i++) {
       const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
       const tx = this.x[i1] - this.x[i0], ty = this.y[i1] - this.y[i0];
-      const l = Math.hypot(tx, ty) || 1;
+      const l = hypot(tx, ty) || 1;
       const nx = ty / l, ny = -tx / l;
       for (let k = 0; k < offsets.length; k++) {
         const o = offsets[k][i];
         const t = threads[k];
         t.x[i] = this.x[i] + nx * o;
         t.y[i] = Math.min(VALLEY.width, Math.max(0, this.y[i] + ny * o));
-        // Hidden where it runs inside a wider thread drawn before it.
-        let f = 1;
-        for (let j = 0; j < k; j++) {
-          const room = Math.abs(o - offsets[j][i]) + widths[k] / 2 - widths[j] / 2; // how far it pokes out
-          f = Math.min(f, Math.max(0, room / (0.4 * widths[k])));
-        }
-        t.width[i] = widths[k] * Math.min(1, f);
-      }
-    }
-    // Smooth each thread's drawn width along its length, so a thread brushing
-    // past another fades out and back in rather than flickering to dashes.
-    const tmp = new Float32Array(n);
-    for (const t of threads) {
-      for (let pass = 0; pass < 2; pass++) {
-        for (let i = 0; i < n; i++) {
-          let sum = 0, cnt = 0;
-          for (let j = Math.max(0, i - 3); j <= Math.min(n - 1, i + 3); j++) { sum += t.width[j]; cnt++; }
-          tmp[i] = sum / cnt;
-        }
-        t.width.set(tmp);
+        t.width[i] = widths[k];
       }
     }
     return { amount: this.braid, half: this.threads.half, threadWidth: width, threads };

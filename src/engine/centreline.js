@@ -2,6 +2,7 @@
 // (x = 0) to downstream (x = VALLEY.length). Everything here is plain maths
 // on typed arrays; no three.js.
 import { VALLEY, CENTRELINE } from '../config.js';
+import { exp, sin, hypot } from './dmath.js';
 
 // Signed curvature (1/m) at each point from finite differences. Positive turns
 // anticlockwise (left when walking downstream). Zero at the two end points.
@@ -11,12 +12,12 @@ export function curvature(x, y) {
   for (let i = 1; i < n - 1; i++) {
     const dx1 = x[i] - x[i - 1], dy1 = y[i] - y[i - 1];
     const dx2 = x[i + 1] - x[i], dy2 = y[i + 1] - y[i];
-    const l1 = Math.hypot(dx1, dy1), l2 = Math.hypot(dx2, dy2);
+    const l1 = hypot(dx1, dy1), l2 = hypot(dx2, dy2);
     if (l1 < 1e-9 || l2 < 1e-9) continue;
     // Curvature of the circumscribed circle through the three points.
     const cross = dx1 * dy2 - dy1 * dx2;
     const dx3 = x[i + 1] - x[i - 1], dy3 = y[i + 1] - y[i - 1];
-    const l3 = Math.hypot(dx3, dy3);
+    const l3 = hypot(dx3, dy3);
     if (l3 < 1e-9) continue;
     c[i] = (2 * cross) / (l1 * l2 * l3);
   }
@@ -27,7 +28,7 @@ export function curvature(x, y) {
 export function arcLength(x, y) {
   const n = x.length;
   const s = new Float64Array(n);
-  for (let i = 1; i < n; i++) s[i] = s[i - 1] + Math.hypot(x[i] - x[i - 1], y[i] - y[i - 1]);
+  for (let i = 1; i < n; i++) s[i] = s[i - 1] + hypot(x[i] - x[i - 1], y[i] - y[i - 1]);
   return s;
 }
 
@@ -86,12 +87,12 @@ export function initialCentreline(settings, rng) {
     x[i] = t * VALLEY.length;
     let off = 0;
     if (shape === 'wiggle') {
-      for (const w of waves) off += w.amp * Math.sin((x[i] / w.len) * Math.PI * 2 + w.phase);
+      for (const w of waves) off += w.amp * sin((x[i] / w.len) * Math.PI * 2 + w.phase);
     } else if (shape === 'sine') {
-      off = CENTRELINE.sineAmplitude * W * Math.sin((x[i] / (CENTRELINE.sineWavelength * W)) * Math.PI * 2);
+      off = CENTRELINE.sineAmplitude * W * sin((x[i] / (CENTRELINE.sineWavelength * W)) * Math.PI * 2);
     }
     // Taper the offset to zero at both fixed ends.
-    const taper = Math.sin(Math.PI * t) ** 0.5;
+    const taper = Math.sqrt(Math.max(0, sin(Math.PI * t)));
     y[i] = mid + off * taper;
   }
   x[n - 1] = VALLEY.length;
@@ -115,8 +116,8 @@ export function migrationRate(x, y, c, k, params, ds, W) {
   let sum = 0, norm = 0;
   for (let i = 0; i < n; i++) {
     const r0 = c[i] * W;
-    const seg = i === 0 ? ds : Math.hypot(x[i] - x[i - 1], y[i] - y[i - 1]);
-    const w = Math.exp(-alpha * seg);
+    const seg = i === 0 ? ds : hypot(x[i] - x[i - 1], y[i] - y[i - 1]);
+    const w = exp(-alpha * seg);
     const upstream = norm > 0 ? sum / norm : 0;
     // Local erodibility scales the whole rate: a rock bank does not move just
     // because the bend upstream is sharp.
@@ -136,7 +137,7 @@ export function migrate(x, y, rate, dt) {
   const nx = new Float64Array(n), ny = new Float64Array(n);
   for (let i = 1; i < n - 1; i++) {
     const tx = x[i + 1] - x[i - 1], ty = y[i + 1] - y[i - 1];
-    const l = Math.hypot(tx, ty) || 1;
+    const l = hypot(tx, ty) || 1;
     nx[i] = ty / l; ny[i] = -tx / l; // right-hand normal (looking downstream)
   }
   for (let i = 1; i < n - 1; i++) {
@@ -168,7 +169,7 @@ export function findNeckCutoff(x, y, minSeparationPoints, cutoffDistance, endPro
       if (!b) continue;
       for (const j of b) {
         if (j - i < minSeparationPoints) continue;
-        const d = Math.hypot(x[j] - x[i], y[j] - y[i]);
+        const d = hypot(x[j] - x[i], y[j] - y[i]);
         if (d < bestD) { bestD = d; best = { i, j }; }
       }
     }
@@ -208,7 +209,7 @@ export function findChuteCutoff(x, y, c, rng, chance, ds, W, endProtection) {
       for (let j = a + 1; j <= Math.min(n - 1 - endProtection, i + maxSep); j++) {
         const sep = j - i;
         if (sep < minSep) continue;
-        const d = Math.hypot(x[j] - x[i], y[j] - y[i]);
+        const d = hypot(x[j] - x[i], y[j] - y[i]);
         // A real shortcut: the straight line is much shorter than the river path it replaces.
         if (d <= chord * sep * ds && (!best || sep > best.j - best.i)) best = { i, j };
       }

@@ -4,6 +4,7 @@
 // build levees; low ground slowly rises back to floodplain level.
 import { VALLEY, QUALITY, SURFACE, FLOODPLAIN, THALWEG, CENTRELINE, BRAID } from '../config.js';
 import { createNoise2D } from './random.js';
+import { sin, hypot } from './dmath.js';
 
 // Floodplain top (no noise) at distance x down the valley.
 export function baseLevel(x, settings) {
@@ -173,7 +174,7 @@ function forCellsNear(grid, x, y, radius, fn) {
         }
         t = Math.max(0, Math.min(1, t));
         const qx = ax + dx * t, qy = ay + dy * t;
-        const d = Math.hypot(px - qx, py - qy);
+        const d = hypot(px - qx, py - qy);
         if (d > radius) continue;
         const side = ((px - ax) * dy - (py - ay) * dx) / len; // >0 on the right of flow
         stamp[i] = id;
@@ -206,7 +207,7 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
   for (const i of prevList) if (channel[i] === 1) channel[i] = 3; // 3 = was river last step
   const list = [];
 
-  const ridge = FLOODPLAIN.scrollAmplitude * (0.5 + 0.5 * Math.sin((2 * Math.PI * year) / FLOODPLAIN.scrollPeriod));
+  const ridge = FLOODPLAIN.scrollAmplitude * (0.5 + 0.5 * sin((2 * Math.PI * year) / FLOODPLAIN.scrollPeriod));
   // Levee growth is per flood-year; this call covers one step of DT years.
   const leveeGain = FLOODPLAIN.leveeRate * sedimentSupply * flood * river.dt;
 

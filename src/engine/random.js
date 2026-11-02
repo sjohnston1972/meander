@@ -1,5 +1,6 @@
 // One seeded random number generator (mulberry32). Every bit of randomness in
 // the engine comes through here so the same seed always gives the same river.
+import { log } from './dmath.js';
 
 export function createRandom(seed) {
   let state = (seed >>> 0) || 0x9e3779b9;
@@ -29,7 +30,7 @@ export function createRandom(seed) {
         v = next() * 2 - 1;
         s = u * u + v * v;
       } while (s >= 1 || s === 0);
-      const m = Math.sqrt((-2 * Math.log(s)) / s);
+      const m = Math.sqrt((-2 * log(s)) / s);
       spare = v * m;
       return u * m;
     },
