@@ -95,6 +95,8 @@ export function createControls(settings, actions) {
   add(veg, 'vegGrowth').name('Growth rate');
   add(veg, 'rootStrength').name('Root strength');
   add(veg, 'vegDensity').name('Density (visual)');
+  add(veg, 'logJams').name('Log jams');
+  add(veg, 'beavers').name('Beavers');
 
   // --- Cutoffs ---
   const cut = gui.addFolder('Cutoffs');

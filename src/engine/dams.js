@@ -4,8 +4,10 @@
 // not spread into them. If the lake reaches that river anywhere but at the dam
 // itself (more than `radius` from it), the water has a way round the debris
 // and there is no lake: returns null. Otherwise returns the flooded dry
-// cells (river and oxbow cells are left to their own water).
-export function fillPond(grid, seed, crest, damX, damY, radius) {
+// cells (river and oxbow cells are left to their own water). With `clip`
+// (beaver ponds, held in by dams the beavers extend across the low ground)
+// the pond simply stops `radius` from the dam.
+export function fillPond(grid, seed, crest, damX, damY, radius, clip = false) {
   const { cols, rows, cell, height, channel, chanLevel } = grid;
   const n = height.length;
   const below = (j) => (channel[j] === 1 || channel[j] === 3) && chanLevel[j] < crest - 0.05;
@@ -28,7 +30,10 @@ export function fillPond(grid, seed, crest, damX, damY, radius) {
       if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
       const j = ny * cols + nx;
       if (stamp[j] === id || height[j] >= crest) continue;
-      if (below(j)) {
+      if (clip) {
+        const dx = (nx + 0.5) * cell - damX, dy = (ny + 0.5) * cell - damY;
+        if (below(j) || dx * dx + dy * dy > r2) continue;
+      } else if (below(j)) {
         const dx = (nx + 0.5) * cell - damX, dy = (ny + 0.5) * cell - damY;
         if (dx * dx + dy * dy > r2) return null; // round the side of the dam
         continue;

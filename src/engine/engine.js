@@ -1,7 +1,7 @@
 // The simulation engine. Owns the river centreline, the oxbows and the
 // floodplain grid, advances them one fixed time step per tick(), and hands out
 // snapshots for the renderer. Pure JavaScript; never touches three.js.
-import { VALLEY, DT, CENTRELINE, FLOODS, FLOODPLAIN, THALWEG, RENDER, SURFACE, BRAID, HILLS, SEDIMENT, LAKE, TRIB, GRAIN } from '../config.js';
+import { VALLEY, DT, CENTRELINE, FLOODS, FLOODPLAIN, THALWEG, RENDER, SURFACE, BRAID, HILLS, SEDIMENT, LAKE, TRIB, GRAIN, WOOD, BEAVER } from '../config.js';
 
 const RENDER_FEATURE_TICKS = RENDER.featureEveryTicks;
 const BEDROCK_SEND_TICKS = 40; // at most every 10 years
@@ -25,6 +25,7 @@ import {
 } from './tributary.js';
 import { wetness, climateSettings, climatePhase } from './climate.js';
 import { newStats, accumulate, maybeRecord, saveStats, restoreStats, statsForSnapshot } from './stats.js';
+import { backwater, backwaterReach, jamChance, wetUpstream, beaverSite } from './jams.js';
 import { exp, pow, hypot, sin, cos } from './dmath.js';
 
 export class Engine {
@@ -62,7 +63,9 @@ export class Engine {
     this.slideMarks = [];       // recent landslide scars, for labels: [{ x, y, year }]
     this.hangingLoops = [];     // loops left high and dry by a river cutting down: [{ x, y, year }]
     this.gullies = [];          // side gullies cutting back into the valley walls (see hillslope.newGully)
-    this.dams = [];             // landslide dams: [{ id, x, y, crest, natural, age, radius, cells }]
+    this.dams = [];             // landslide and beaver dams: [{ id, kind, x, y, crest, natural, age, life, radius, cells }]
+    this.jams = [];             // log jams: [{ id, x, y, height, age, life, side }]
+    this.jamCount = 0;
     this.damCount = 0;
     this.rate = new Float64Array(x.length);
     this.curv = new Float64Array(x.length);
@@ -149,11 +152,13 @@ export class Engine {
       braid: this.braid, braidTime: this.braidTime, climatePhase: this.climatePhase, stats: saveStats(this.stats),
       slides: this.slides.map((v) => ({ ...v })), slideMarks: this.slideMarks.map((v) => ({ ...v })),
       dams: this.dams.map((d) => ({ ...d, cells: d.cells.slice() })), damCount: this.damCount,
+      jams: this.jams.map((v) => ({ ...v })), jamCount: this.jamCount,
       gullies: this.gullies.map((v) => ({ ...v, px: v.px.slice(), py: v.py.slice() })),
       hangingLoops: this.hangingLoops.map((v) => ({ ...v })),
       trib: this.trib ? {
         x: Float64Array.from(this.trib.x), y: Float64Array.from(this.trib.y), entryX: this.trib.entryX, entryX0: this.trib.entryX0, entryY: this.trib.entryY,
         side: this.trib.side, j: this.trib.j, age: this.trib.age,
+        dams: (this.trib.dams || []).map((d) => ({ id: d.id, a: d.a, h: d.h, age: d.age, life: d.life, cells: d.cells.slice() })), damCount: this.trib.damCount || 0,
       } : null,
       lake: this.lake ? {
         cells: this.lake.cells.slice(), pending: this.lake.pending, fines: this.lake.fines, deposited: this.lake.deposited,
@@ -190,6 +195,7 @@ export class Engine {
     this.loadRatio = null;
     this.q = st.q ?? st.discharge;
     this.oxbows = st.oxbows.map((o) => ({ ...o, x: Float32Array.from(o.x), y: Float32Array.from(o.y), cells: Int32Array.from(o.cells) }));
+    for (const o of this.oxbows) if (o.lodge !== true) delete o.lodge;
     this.oxbowCount = st.oxbowCount;
     this.history = st.history.map((h) => ({ year: h.year, x: Float32Array.from(h.x), y: Float32Array.from(h.y) }));
     this.lastHistoryYear = st.lastHistoryYear ?? -Infinity;
@@ -208,7 +214,11 @@ export class Engine {
     this.threads = null;
     this.slides = (st.slides || []).map((v) => ({ x: v.x, y: v.y, dirx: v.dirx, diry: v.diry, width: v.width, age: v.age }));
     this.slideMarks = (st.slideMarks || []).map((v) => ({ x: v.x, y: v.y, year: v.year }));
-    this.dams = (st.dams || []).map((d) => ({ id: d.id, x: d.x, y: d.y, crest: d.crest, natural: d.natural, age: d.age, radius: d.radius, cells: Int32Array.from(d.cells) }));
+    this.dams = (st.dams || []).map((d) => ({
+      id: d.id, kind: d.kind || 'slide', x: d.x, y: d.y, crest: d.crest, natural: d.natural, age: d.age, life: d.life || 0, radius: d.radius, cells: Int32Array.from(d.cells),
+    }));
+    this.jams = (st.jams || []).map((v) => ({ id: v.id, x: v.x, y: v.y, height: v.height, age: v.age, life: v.life, side: v.side }));
+    this.jamCount = st.jamCount ?? 0;
     this.damCount = st.damCount ?? 0;
     this.hangingLoops = (st.hangingLoops || []).map((v) => ({ x: v.x, y: v.y, year: v.year }));
     this.gullies = (st.gullies || []).map((v) => ({
@@ -232,6 +242,7 @@ export class Engine {
     this.trib = st.trib ? {
       x: Float64Array.from(st.trib.x), y: Float64Array.from(st.trib.y), entryX: st.trib.entryX, entryX0: st.trib.entryX0, entryY: st.trib.entryY,
       side: st.trib.side, j: st.trib.j, age: st.trib.age,
+      dams: (st.trib.dams || []).map((d) => ({ id: d.id, a: d.a, h: d.h, age: d.age, life: d.life, cells: Int32Array.from(d.cells) })), damCount: st.trib.damCount || 0,
     } : null;
     if (this.trib) tributaryLevels(this.trib, this.settings, this.level, this.depth);
     this.events = [];
@@ -431,6 +442,17 @@ export class Engine {
     if (this.aggr.length !== n) this.aggr = new Float64Array(n); // only if something replaced the course without carrying it
     const level = new Float64Array(n);
     for (let i = 0; i < n; i++) level[i] = ref[i] + this.aggr[i];
+    for (const jm of this.jams) {
+      const j = this.nearestPoint(jm.x, jm.y);
+      const reach = backwaterReach(jm.height, this.settings.valleySlope);
+      let d = 0;
+      for (let i = j; i >= 0; i--) {
+        if (i < j) d += hypot(this.x[i + 1] - this.x[i], this.y[i + 1] - this.y[i]);
+        const b = backwater(jm.height, d, reach);
+        if (b <= 0) break;
+        level[i] += b;
+      }
+    }
     for (const d of this.dams) {
       const j = this.nearestPoint(d.x, d.y);
       const k = Math.min(n - 1, j + 1);
@@ -775,6 +797,7 @@ export class Engine {
     this.bankCollapses(rate, k, base);
     if (this.slides.length) this.pushFromSlides(rate);
     if (this.trib) this.pushFromTributary(rate);
+    if (this.jams.length) this.pushFromJams(rate);
     this.rate = rate;
     // Valley walls the river eats into: material above an ordinary bank
     // (terrace and gorge walls) joins the load, m^3/yr per point.
@@ -834,6 +857,7 @@ export class Engine {
       if (this.dams.length) this.updateDams(this.landDt);
       if (this.lake) this.updateLake();
       if (this.trib) growFan(this.grid, this.trib, s, this.landDt);
+      if (s.logJams || s.beavers || this.jams.length) this.updateWood(this.landDt);
       this.landDt = 0;
     }
     this.sedimentStep();
@@ -1055,13 +1079,13 @@ export class Engine {
   // The water behind it rises to the crest. Returns false (and leaves the
   // river as it was) if the water could get round the debris, or the river
   // is already dammed nearby.
-  makeDam(i, above, radius = 3 * this.settings.channelWidth) {
+  makeDam(i, above, radius = 3 * this.settings.channelWidth, kind = 'slide', life = 0) {
     const prot = CENTRELINE.endProtection;
     const n = this.x.length;
     if (i < prot + 5 || i > n - prot - 2) return false;
     const x = this.x[i], y = this.y[i];
     if (this.dams.some((d) => hypot(d.x - x, d.y - y) < HILLS.damSpacing)) return false;
-    const dam = { id: ++this.damCount, x, y, crest: this.level[i] + above, natural: this.level[i], age: 0, radius, cells: new Int32Array(0) };
+    const dam = { id: ++this.damCount, kind, x, y, crest: this.level[i] + above, natural: this.level[i], age: 0, life, radius, cells: new Int32Array(0) };
     this.dams.push(dam);
     this.computeLevels();
     this.stamp();
@@ -1078,7 +1102,7 @@ export class Engine {
   fillDam(d) {
     const j = this.nearestPoint(d.x, d.y);
     const k = Math.max(0, j - 3);
-    const cells = fillPond(this.grid, cellIndex(this.grid, this.x[k], this.y[k]), d.crest, d.x, d.y, d.radius);
+    const cells = fillPond(this.grid, cellIndex(this.grid, this.x[k], this.y[k]), d.crest, d.x, d.y, d.radius, d.kind === 'beaver');
     if (!cells) return false;
     d.cells = cells;
     return true;
@@ -1092,17 +1116,19 @@ export class Engine {
     for (let k = this.dams.length - 1; k >= 0; k--) {
       const d = this.dams[k];
       d.age += dt;
-      d.crest -= HILLS.damErosion * dt * (1 + HILLS.damFloodErosion * this.flood);
+      const kept = d.kind === 'beaver' && d.age < d.life; // a colony keeps its dam in repair
+      if (!kept) d.crest -= HILLS.damErosion * dt * (1 + HILLS.damFloodErosion * this.flood);
       const above = d.crest - d.natural;
-      let gone = above <= 0.1;
-      if (!gone && this.rng.chance(HILLS.damFailChance * dt * (above / HILLS.damMinHeight))) {
+      let gone = !kept && above <= 0.1; // a colony keeps even a silted-up dam (its pond becomes a meadow)
+      if (!gone && !kept && this.rng.chance(HILLS.damFailChance * dt * (above / HILLS.damMinHeight))) {
         gone = true;
         this.floodPending = true;
-        this.events.push({ type: 'outburst', x: d.x, y: d.y, year: this.year });
+        this.events.push({ type: 'outburst', x: d.x, y: d.y, year: this.year, kind: d.kind });
       }
       if (!gone && !this.fillDam(d)) gone = true;
       if (gone) {
-        for (const i of d.cells) if (!g.channel[i]) { g.surface[i] = SURFACE.WETLAND; g.veg[i] = Math.min(g.veg[i], 0.2); }
+        const left = d.kind === 'beaver' ? SURFACE.MARSH : SURFACE.WETLAND; // an old beaver pond is a wet meadow
+        for (const i of d.cells) if (!g.channel[i]) { g.surface[i] = left; g.veg[i] = Math.min(g.veg[i], 0.2); }
         this.dams.splice(k, 1);
         continue;
       }
@@ -1115,6 +1141,118 @@ export class Engine {
       }
     }
     this.computeLevels();
+  }
+
+  // Wood in the river, once a year: jams rot, wash out or are left behind as
+  // the river moves; eroding wooded banks drop new ones; the backed-up water
+  // wets the ground above them. Then the beavers.
+  updateWood(dt) {
+    const s = this.settings, g = this.grid, W = s.channelWidth;
+    const n = this.active;
+    const prot = CENTRELINE.endProtection;
+    for (let k = this.jams.length - 1; k >= 0; k--) {
+      const jm = this.jams[k];
+      jm.age += dt;
+      const j = this.nearestPoint(jm.x, jm.y);
+      const stranded = hypot(this.x[j] - jm.x, this.y[j] - jm.y) > W;
+      const flushed = this.flood > 0 && this.rng.chance(WOOD.flushChance * this.flood * dt);
+      if (!s.logJams || jm.age > jm.life || stranded || flushed) this.jams.splice(k, 1);
+    }
+    if (s.logJams && this.jams.length < WOOD.maxJams && this.rate.length === this.x.length) {
+      const pool = this.dams.length ? this.pooledPoints() : null;
+      for (let i = prot + 2; i < n - prot - 2; i += 3) {
+        const side = this.curv[i] > 0 ? 1 : -1;
+        const i0 = i - 1, i1 = i + 1;
+        const tx = this.x[i1] - this.x[i0], ty = this.y[i1] - this.y[i0];
+        const l = hypot(tx, ty) || 1;
+        const c = cellIndex(g, this.x[i] + (ty / l) * side * W * 0.7, this.y[i] - (tx / l) * side * W * 0.7);
+        const chance = jamChance(this.rate[i], g.veg[c], W);
+        if (chance <= 0 || !this.rng.chance(chance * dt)) continue;
+        if (pool && pool[i]) continue;
+        if (this.jams.some((v) => hypot(v.x - this.x[i], v.y - this.y[i]) < WOOD.spacing)) continue;
+        const scale = Math.min(1, WOOD.refWidth / W);
+        this.jams.push({
+          id: ++this.jamCount, x: this.x[i], y: this.y[i], side,
+          height: this.rng.range(WOOD.height[0], WOOD.height[1]) * scale, age: 0, life: this.rng.range(WOOD.life[0], WOOD.life[1]),
+        });
+        break; // at most one a year
+      }
+    }
+    for (const jm of this.jams) {
+      const j = this.nearestPoint(jm.x, jm.y);
+      const reach = backwaterReach(jm.height, s.valleySlope);
+      let from = j, d = 0;
+      while (from > 0 && d < reach) { d += hypot(this.x[from] - this.x[from - 1], this.y[from] - this.y[from - 1]); from--; }
+      wetUpstream(g, this.x, this.y, from, j + 1, this.level[j], W * WOOD.wetWidths);
+    }
+    if (s.beavers) this.updateBeavers(dt);
+    else if (this.trib && this.trib.dams) this.trib.dams.length = 0;
+  }
+
+  // Beavers: a colony now and then dams the river (if it is narrow enough)
+  // and the tributary (likewise); oxbow lakes get lodges.
+  updateBeavers(dt) {
+    const s = this.settings, g = this.grid, W = s.channelWidth;
+    const prot = CENTRELINE.endProtection;
+    if (W <= BEAVER.maxWidth && this.dams.filter((d) => d.kind === 'beaver').length < BEAVER.maxDams && this.rng.chance(BEAVER.chance * dt)) {
+      const span = Math.max(1, this.active - 2 * prot - 12);
+      const i = prot + 6 + this.rng.int(span);
+      if (beaverSite(g, this.x, this.y, i, W) && this.makeDam(i, BEAVER.height, 3 * W, 'beaver', this.rng.range(BEAVER.life[0], BEAVER.life[1]))) {
+        this.events.push({ type: 'beaverdam', x: this.x[i], y: this.y[i], year: this.year });
+      }
+    }
+    const t = this.trib;
+    if (t && tribWidth(s) <= BEAVER.maxWidth) {
+      if (!t.dams) t.dams = [];
+      t.damCount = t.damCount || 0;
+      const arc = arcLength(t.x, t.y);
+      const total = arc[arc.length - 1];
+      for (let k = t.dams.length - 1; k >= 0; k--) {
+        const d = t.dams[k];
+        d.age += dt;
+        let gone = d.age > d.life || d.a > total - 2 * tribWidth(s);
+        if (!gone && d.k !== undefined && d.crest !== undefined) {
+          const kk = Math.max(0, Math.min(t.x.length - 1, d.k - 2));
+          const cells = fillPond(g, cellIndex(g, t.x[kk], t.y[kk]), d.crest, t.x[d.k], t.y[d.k], 5 * tribWidth(s), true);
+          if (!cells) gone = true;
+          else {
+            d.cells = cells;
+            for (const i of cells) { g.veg[i] *= Math.max(0, 1 - 0.2 * dt); g.surface[i] = SURFACE.WETLAND; }
+          }
+        }
+        if (gone) {
+          for (const i of d.cells) if (!g.channel[i]) g.surface[i] = SURFACE.MARSH;
+          t.dams.splice(k, 1);
+        }
+      }
+      if (t.dams.length < BEAVER.maxDams && total > 400 && this.rng.chance(BEAVER.chance * dt)) {
+        const a = total * this.rng.range(0.2, 0.8);
+        if (!t.dams.some((d) => Math.abs(d.a - a) < BEAVER.spacing)) {
+          t.dams.push({ id: ++t.damCount, a, h: BEAVER.height, age: 0, life: this.rng.range(BEAVER.life[0], BEAVER.life[1]), cells: new Int32Array(0) });
+          t.dams.sort((p, q) => q.a - p.a); // downstream first
+          this.events.push({ type: 'beaverdam', x: t.x[0], y: t.y[0], year: this.year });
+        }
+      }
+    }
+    for (const o of this.oxbows) {
+      if (!o.lodge && !o.draining && o.depth > FLOODPLAIN.oxbowMarshDepth && this.rng.chance(BEAVER.lodgeChance * dt)) o.lodge = true;
+    }
+  }
+
+  // A jam pushes the river towards the other bank around it.
+  pushFromJams(rate) {
+    const n = this.x.length;
+    const prot = Math.max(1, CENTRELINE.endProtection);
+    const r = WOOD.pushWidths * this.settings.channelWidth;
+    for (const jm of this.jams) {
+      for (let i = prot; i < n - prot; i++) {
+        const ox = this.x[i] - jm.x, oy = this.y[i] - jm.y;
+        if (ox > r || ox < -r || oy > r || oy < -r) continue;
+        const d = Math.sqrt(ox * ox + oy * oy);
+        if (d >= r) continue;
+        rate[i] -= jm.side * WOOD.push * (1 - d / r);
+      }
+    }
   }
 
   // Debris in the river pushes the channel away from the slide, fading as
@@ -1276,7 +1414,7 @@ export class Engine {
         o.draining = true;
         o.drainRate = o.depth / HILLS.drainYears;
       }
-      o.depth -= o.draining ? Math.max(rate, (o.drainRate || 0) * DT) : rate;
+      o.depth -= o.draining ? Math.max(rate, (o.drainRate || 0) * DT) : o.lodge ? rate * BEAVER.lodgeInfill : rate;
       if (o.depth <= 0) {
         retireOxbow(this.grid, o);
         if (o.draining) {
@@ -1494,14 +1632,20 @@ export class Engine {
   wallFeatures(out) {
     const g = this.grid;
     for (const m of this.slideMarks) if (this.year - m.year < HILLS.slideLabelYears) out.push({ type: 'landslide', x: m.x, y: m.y });
-    for (const d of this.dams) {
-      out.push({ type: 'landslidedam', x: d.x, y: d.y, level: d.crest });
-      if (d.cells.length > 20) {
+    const ponds = [...this.dams, ...(this.trib?.dams || []).filter((d) => d.crest !== undefined && d.k < this.trib.x.length).map((d) => ({
+      kind: 'beaver', x: this.trib.x[d.k], y: this.trib.y[d.k], crest: d.crest, cells: d.cells,
+    }))];
+    for (const d of ponds) {
+      const beaver = d.kind === 'beaver';
+      out.push({ type: beaver ? 'beaverdam' : 'landslidedam', x: d.x, y: d.y, level: d.crest });
+      if (d.cells.length > (beaver ? 6 : 20)) {
         const i = d.cells[Math.floor(d.cells.length / 2)];
         const cx = i % g.cols, cy = (i - cx) / g.cols;
-        out.push({ type: 'landslidelake', x: (cx + 0.5) * g.cell, y: (cy + 0.5) * g.cell, level: d.crest });
+        out.push({ type: beaver ? 'beaverpond' : 'landslidelake', x: (cx + 0.5) * g.cell, y: (cy + 0.5) * g.cell, level: d.crest });
       }
     }
+    for (const jm of this.jams) out.push({ type: 'logjam', x: jm.x, y: jm.y, level: this.level[this.nearestPoint(jm.x, jm.y)] });
+    for (const o of this.oxbows) if (o.lodge) { const p = this.loopLabelPoint(o); out.push({ type: 'beaverlodge', x: p.x, y: p.y, level: o.level }); }
     for (const v of this.gullies) {
       if (v.length < 80) continue;
       const k = Math.min(v.px.length - 1, Math.floor(v.length / 80)); // about halfway up (points are 40 m apart)
@@ -1553,6 +1697,42 @@ export class Engine {
         chans++;
       }
     }
+  }
+
+  // Log jams, beaver dams and lodges for the renderer: where, which way the
+  // river runs there, how wide, at what water level.
+  woodSnapshot() {
+    const W = this.settings.channelWidth;
+    const at = (x, y, i, xs, ys, level, width, id, kind) => {
+      const n = xs.length;
+      const i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
+      const dx = xs[i1] - xs[i0], dy = ys[i1] - ys[i0];
+      const l = hypot(dx, dy) || 1;
+      return { kind, id, x, y, dirx: dx / l, diry: dy / l, level, width };
+    };
+    const out = [];
+    for (const jm of this.jams) {
+      const j = this.nearestPoint(jm.x, jm.y);
+      out.push(at(this.x[j], this.y[j], j, this.x, this.y, this.level[j], W, `j${jm.id}`, 'jam'));
+    }
+    for (const d of this.dams) {
+      if (d.kind !== 'beaver') continue;
+      const j = this.nearestPoint(d.x, d.y);
+      out.push(at(d.x, d.y, j, this.x, this.y, d.crest, W, `b${d.id}`, 'beaver'));
+    }
+    const t = this.trib;
+    if (t && t.dams) {
+      for (const d of t.dams) {
+        if (d.k === undefined || d.k >= t.x.length) continue;
+        out.push(at(t.x[d.k], t.y[d.k], d.k, t.x, t.y, d.crest, tribWidth(this.settings), `t${d.id}`, 'beaver'));
+      }
+    }
+    for (const o of this.oxbows) {
+      if (!o.lodge) continue;
+      const p = this.loopLabelPoint(o);
+      out.push({ kind: 'lodge', id: `o${o.id}`, x: p.x, y: p.y, dirx: 1, diry: 0, level: o.level - o.depth * 0.3, width: o.width });
+    }
+    return out;
   }
 
   // Thread polylines for the renderer, each with its width per point.
@@ -1616,7 +1796,9 @@ export class Engine {
         load: this.loadRatio && this.loadRatio.length === n ? Float32Array.from(this.loadRatio) : null,
         wash: this.wash && this.wash.length === n ? Float32Array.from(this.wash, (_, i) => this.washFactor(i)) : null,
       },
-      ponds: this.dams.map((d) => ({ id: d.id, level: d.crest, cells: d.cells })),
+      ponds: [...this.dams.map((d) => ({ id: d.id, level: d.crest, cells: d.cells })),
+        ...(this.trib?.dams || []).filter((d) => d.crest !== undefined && d.cells.length).map((d) => ({ id: `t${d.id}`, level: d.crest, cells: d.cells }))],
+      wood: this.woodSnapshot(),
       lake: this.lake ? { level: this.lakeLevel, version: this.lake.version, cells: this.lake.version !== this.sentLakeVersion ? this.lake.cells : null } : null,
       channels: [...(this.trib && this.trib.level && this.trib.level.length === this.trib.x.length ? [{
         kind: 'tributary', x: Float32Array.from(this.trib.x), y: Float32Array.from(this.trib.y),

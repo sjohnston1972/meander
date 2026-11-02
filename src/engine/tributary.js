@@ -61,7 +61,9 @@ export function migrateTributary(t, s, grid, qFactor, dt, noise) {
   const base = s.erodibility * CENTRELINE.migrationScale * TRIB.migration * qFactor;
   const k = new Float64Array(n);
   const margin = TRIB.wallWidths * w; // it is in its own valley up there: only the last few widths are held
+  const pool = t.pool && t.pool.length === n ? t.pool : null;
   for (let i = 3; i < n - 3; i++) {
+    if (pool && pool[i]) continue; // a beaver pond does not migrate
     const edge = Math.min(t.y[i], VALLEY.width - t.y[i]);
     const wall = edge < margin ? (edge / margin) * (edge / margin) : 1;
     k[i] = base * wall * sampleErodibility(grid, t.x[i], t.y[i], s);
@@ -119,7 +121,17 @@ export function tributaryLevels(t, s, mainLevel, depth) {
   const lj = mainLevel[Math.min(mainLevel.length - 1, t.j)];
   const level = new Float64Array(n);
   for (let i = 0; i < n; i++) level[i] = lj + fall * (1 - arc[i] / total);
+  // Beaver dams hold the water up behind them (downstream ones first).
+  const pool = t.dams && t.dams.length ? new Uint8Array(n) : null;
+  for (const d of t.dams || []) {
+    let k = 0;
+    while (k < n - 1 && arc[k] < d.a) k++;
+    d.k = k;
+    d.crest = level[k] + d.h;
+    for (let i = k; i >= 0 && level[i] < d.crest; i--) { level[i] = d.crest; pool[i] = 1; }
+  }
   t.level = level;
+  t.pool = pool;
   return level;
 }
 

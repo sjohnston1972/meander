@@ -6,7 +6,7 @@
 // { $ta: type, o: byte offset, n: length } into the data block. Infinity and
 // -Infinity (JSON cannot hold them) are written as { $num: 'inf' | '-inf' }.
 // Compression (gzip) is left to the caller, since it is async in browsers.
-import { QUALITY, VALLEY, HILLS, LAKE, defaults } from '../config.js';
+import { QUALITY, VALLEY, HILLS, LAKE, WOOD, BEAVER, defaults } from '../config.js';
 import { sanitizeSettings } from '../settings.js';
 import { restoreStats } from './stats.js';
 
@@ -174,6 +174,14 @@ export function validateState(state) {
     if (!finite(t.x) || !finite(t.y) || t.x.length !== t.y.length || t.x.length < 2 || t.x.length > 20000 || !inside(t.x, t.y)) fail('tributary course');
     if (!num(t.entryX, 0, VALLEY.length) || !num(t.entryX0, 0, VALLEY.length) || !num(t.entryY, 0, VALLEY.width) || (t.side !== 1 && t.side !== -1)) fail('tributary entry');
     if (!Number.isInteger(t.j) || t.j < 0 || t.j >= n0 || !num(t.age, 0, 1e9)) fail('tributary junction');
+    if (t.dams !== undefined) {
+      if (!Array.isArray(t.dams) || t.dams.length > BEAVER.maxDams) fail('tributary beaver dams');
+      for (const d of t.dams) {
+        if (!num(d?.id, 0, 1e9) || !num(d.age, 0, 1e9) || !num(d.life, 0, 1e9) || !num(d.a, 0, 1e6) || !num(d.h, 0, 10)) fail('tributary beaver dam');
+        if (!(d.cells instanceof Int32Array) || d.cells.length > n || d.cells.some((i) => i < 0 || i >= n)) fail('beaver pond');
+      }
+    }
+    if (t.damCount !== undefined && (!Number.isInteger(t.damCount) || t.damCount < 0)) fail('tributary dam count');
   }
 
   // Valley walls (absent from saves made before landslides and gullies).
@@ -184,9 +192,16 @@ export function validateState(state) {
   for (const v of list('hangingLoops', 100)) if (!at(v) || !num(v.year, 0, 1e9)) fail('hanging loop');
   for (const d of list('dams', 100)) {
     if (!at(d) || !nums(d, ['crest', 'natural'], -1e5, 1e5) || !nums(d, ['id', 'age', 'radius'], 0, 1e9)) fail('dam');
+    if (d.kind !== undefined && !['slide', 'beaver'].includes(d.kind)) fail('dam kind');
+    if (d.life !== undefined && !num(d.life, 0, 1e9)) fail('dam life');
     if (!(d.cells instanceof Int32Array) || d.cells.length > n || d.cells.some((i) => i < 0 || i >= n)) fail('dam lake');
   }
   if (state.damCount !== undefined && (!Number.isInteger(state.damCount) || state.damCount < 0)) fail('dam count');
+  for (const v of list('jams', WOOD.maxJams)) {
+    if (!at(v) || !nums(v, ['height'], 0, 10) || !nums(v, ['id', 'age', 'life'], 0, 1e9) || (v.side !== 1 && v.side !== -1)) fail('log jam');
+  }
+  if (state.jamCount !== undefined && (!Number.isInteger(state.jamCount) || state.jamCount < 0)) fail('jam count');
+  for (const o of state.oxbows) if (o.lodge !== undefined && typeof o.lodge !== 'boolean') fail('oxbow lodge');
   // Gullies no bigger than the engine makes: their cost each step follows their size.
   const maxPoints = Math.ceil(HILLS.gullyMaxLength / 40) + 3;
   for (const v of list('gullies', HILLS.maxGullies)) {

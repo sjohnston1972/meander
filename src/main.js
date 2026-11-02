@@ -9,6 +9,7 @@ import { createParticles } from './render/particles.js';
 import { createVegetation } from './render/vegetation.js';
 import { createEffects } from './render/effects.js';
 import { createLabels } from './render/labels.js';
+import { createWood } from './render/wood.js';
 import { createSim } from './sim.js';
 import { createControls } from './ui/controls.js';
 import { createCrossSection } from './ui/crosssection.js';
@@ -56,11 +57,12 @@ async function start() {
   const particles = createParticles(QUALITY.high.particles);
   const vegetation = createVegetation(QUALITY.high.trees, QUALITY.high.grass);
   const effects = createEffects();
+  const wood = createWood();
   const labels = createLabels(document.getElementById('labels'), document.getElementById('card'));
   const section = createCrossSection();
   const graphs = createGraphs();
   graphs.show(settings.showGraphs);
-  view.scene.add(terrain.group, water.group, trails.group, particles.points, vegetation.group, effects.group);
+  view.scene.add(terrain.group, water.group, trails.group, particles.points, vegetation.group, effects.group, wood.group);
 
   let snapshot = null;
   let lastTerrainAt = 0, lastVegAt = 0;
@@ -119,6 +121,7 @@ async function start() {
     if (snap.grid.bedrock) terrain.setBedrock(snap.grid.bedrock);
     refreshTerrain(first);
     water.update(snap, settings.exaggeration, settings.waterOpacity, floodVisual);
+    wood.update(snap, settings.exaggeration);
     trails.update(snap, settings.exaggeration, settings.showTrails, settings.showThalweg && !braided(snap));
     particles.setSnapshot(snap, quality().particles);
     section.refresh(snap);
@@ -134,7 +137,8 @@ async function start() {
       else if (ev.type === 'collapse') { toast(`Bank collapse in year ${yr}`); effects.spawn('collapse', ev.x, ev.y, groundHeight(ev.x, ev.y)); }
       else if (ev.type === 'landslide') { toast(`Landslide in year ${yr}`); effects.spawn('collapse', ev.x, ev.y, groundHeight(ev.x, ev.y)); }
       else if (ev.type === 'landslidedam') toast(`A landslide has dammed the river in year ${yr}`);
-      else if (ev.type === 'outburst') toast(`Landslide dam burst in year ${yr}: flood!`);
+      else if (ev.type === 'outburst') toast(ev.kind === 'beaver' ? `A beaver dam burst in year ${yr}` : `Landslide dam burst in year ${yr}: flood!`);
+      else if (ev.type === 'beaverdam') toast(`Beavers have built a dam in year ${yr}`);
       else if (ev.type === 'wetPeriod') toast(`A wetter period begins in year ${yr}: more water, more floods, more sediment`);
       else if (ev.type === 'dryPeriod') toast(`A drier period begins in year ${yr}: less water and sediment`);
       else if (ev.type === 'tributary') toast('A tributary has joined the river');
@@ -213,6 +217,7 @@ async function start() {
         showSedimentHud(snapshot);
         refreshTerrain(true);
         water.update(snapshot, settings.exaggeration, settings.waterOpacity, floodVisual);
+        wood.update(snapshot, settings.exaggeration);
         trails.update(snapshot, settings.exaggeration, settings.showTrails, settings.showThalweg && !braided(snapshot));
       }
     },

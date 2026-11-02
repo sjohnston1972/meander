@@ -26,6 +26,8 @@ export const defaults = {
   valleyEnd: 'open',       // 'open' | 'lake': the river runs on out of the valley, or into a lake where it builds a delta
   tributary: 0,            // flow of a side river joining from one valley wall, as a share of the main river's (0 = none)
   climateSwing: 0,         // how strongly wet and dry periods come and go over the centuries (0 = a steady climate)
+  logJams: false,          // trees from eroding wooded banks fall in and jam the river
+  beavers: false,          // beavers dam channels up to 25 m wide and keep oxbow lakes open
 
   // --- Banks ---
   erodibility: 1,          // bank erodibility multiplier (1 = soft lowland soil)
@@ -274,6 +276,35 @@ export const GRAIN = {
   gravelBars: 0.6,         // bars left behind on a bed with more gravel than this are gravel, else sand
 };
 
+// --- Wood in the river: log jams (logJams) and beavers (beavers) ---
+export const WOOD = {
+  jamChance: 0.0004,       // chance a year that a point on an eroding wooded bank drops a jam (times its vegetation)
+  minRate: 0.3,            // m/yr: banks eroding slower than this drop too little wood
+  minVeg: 0.5,             // ... and banks with less plant cover than this
+  refWidth: 40,            // metres: rivers this wide or narrower jam readily; wider ones less often (trees cannot span them)
+  maxJams: 8,
+  spacing: 300,            // metres between jams
+  height: [0.4, 1.4],      // metres a jam backs the water up
+  maxReach: 1500,          // metres upstream the backed-up water can reach
+  life: [25, 90],          // years before a jam rots away
+  flushChance: 0.1,        // chance a year, at a flood peak, that a jam washes out
+  push: 2.5,               // m/yr a jam pushes the river towards the other bank
+  pushWidths: 2,           // channel widths around the jam it pushes over
+  wetWidths: 1.6,          // channel widths beside the backed-up reach that can turn to wet ground
+  wetAbove: 0.6,           // ... where the ground is less than this above the backed-up water
+};
+export const BEAVER = {
+  maxWidth: 25,            // metres: beavers dam channels this wide or narrower
+  minVeg: 0.5,             // they settle where the bank has at least this much plant cover (food and timber)
+  chance: 0.03,            // chance a year that a new colony dams the river (and, separately, the tributary)
+  maxDams: 5,              // at once, on the river and on the tributary each
+  height: 1.3,             // metres a beaver dam holds the water up
+  spacing: 300,            // metres between beaver dams on the tributary
+  life: [20, 60],          // years a colony keeps its dam in repair
+  lodgeChance: 0.01,       // chance a year that an oxbow lake gets a lodge
+  lodgeInfill: 0.4,        // an oxbow with a lodge fills in this fraction as fast (the beavers keep it open)
+};
+
 // --- Lake at the valley's end (valleyEnd: 'lake') ---
 export const LAKE = {
   length: 1600,            // metres of valley at the downstream end under the lake, on average
@@ -506,6 +537,8 @@ export const HELP = {
   showThalweg: 'Draw the line of deepest, fastest flow',
   showTrails: 'Show where the channel was 50, 100 and 200 years ago',
   showLabels: 'Explain mode: label features and say how they formed',
+  logJams: 'Trees from eroding wooded banks fall in and jam the river: the water backs up behind them, the river is pushed aside, and the ground above turns wet. Jams rot or wash out in floods. Commonest on smaller rivers',
+  beavers: 'Beavers dam channels up to 25 m wide (the river, if narrow enough, and the tributary), flooding ponds that silt up into meadows once they leave, and keep oxbow lakes open with their lodges',
   showGraphs: 'Small charts of the river\'s history: how winding it is, sediment leaving, how far it has cut down, flow and climate',
   showSediment: 'Colour the river by how much sand and gravel it carries (clear blue: less than comes in from upstream; brown: more), and show how much leaves the valley',
   crossSectionOnClick: 'Click a point on the river to see the channel cross-section there',
@@ -624,6 +657,22 @@ export const EXPLANATIONS = {
   scoured: {
     title: 'Scoured reach',
     text: 'The river can carry more than reaches it here, so it picks up the difference from its own bed and cuts down, until it reaches bedrock.',
+  },
+  logjam: {
+    title: 'Log jam',
+    text: 'Trees from an eroding wooded bank fell in and lodged. The jam backs the water up, wets the ground above it, and pushes the river against the other bank, until it rots or a flood flushes it out.',
+  },
+  beaverdam: {
+    title: 'Beaver dam',
+    text: 'Beavers have dammed the channel with sticks and mud. They keep it in repair while the colony stays; once they leave, the water wears it away.',
+  },
+  beaverpond: {
+    title: 'Beaver pond',
+    text: 'The water backed up behind a beaver dam drowns the ground and its trees. Silt settles in it, and when the beavers leave it becomes a wet meadow.',
+  },
+  beaverlodge: {
+    title: 'Beaver lodge',
+    text: 'A beaver lodge in an oxbow lake. The beavers keep the lake open water for longer than it would stay otherwise.',
   },
   armoured: {
     title: 'Armoured bed',

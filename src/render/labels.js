@@ -11,6 +11,7 @@ const ACCENT = {
   gully: RENDER.surfaceColours[SURFACE.EARTH], fan: RENDER.surfaceColours[SURFACE.GRAVEL], scree: RENDER.surfaceColours[SURFACE.SCREE],
   rockledge: RENDER.rockHardColour, hangingloop: RENDER.surfaceColours[SURFACE.GRASS],
   aggrading: RENDER.loadedColour, scoured: RENDER.clearColour, lakedelta: RENDER.surfaceColours[SURFACE.SAND],
+  logjam: 0x5b4330, beaverdam: 0x6a5238, beaverpond: RENDER.pondColour, beaverlodge: 0x6a5238,
   armoured: RENDER.surfaceColours[SURFACE.GRAVEL], sandybed: RENDER.surfaceColours[SURFACE.SAND],
   delta: RENDER.surfaceColours[SURFACE.SAND], distributary: RENDER.riffleColour, deltalake: RENDER.endLakeColour,
   tributary: RENDER.riffleColour, confluence: RENDER.riffleColour, tributaryfan: RENDER.surfaceColours[SURFACE.GRAVEL],

@@ -63,6 +63,7 @@ try {
     await page.screenshot({ path: `docs/looks/${label}-${key}-${name}.png`, timeout: 180000, animations: 'disabled' });
   }
   await page.evaluate(() => { window.meander.settings.showLabels = true; window.meander.controls.refresh(); });
+  await page.waitForFunction(() => [...document.querySelectorAll('.label')].some((e) => e.style.display !== 'none'), null, { timeout: 30000 }).catch(() => {});
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `docs/looks/${label}-3-labels.png`, timeout: 180000, animations: 'disabled' });
   await page.evaluate(() => { window.meander.settings.showLabels = false; window.meander.controls.refresh(); });
