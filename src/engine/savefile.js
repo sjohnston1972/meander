@@ -6,7 +6,7 @@
 // { $ta: type, o: byte offset, n: length } into the data block. Infinity and
 // -Infinity (JSON cannot hold them) are written as { $num: 'inf' | '-inf' }.
 // Compression (gzip) is left to the caller, since it is async in browsers.
-import { QUALITY, VALLEY, HILLS, LAKE, WOOD, BEAVER, defaults } from '../config.js';
+import { QUALITY, VALLEY, HILLS, LAKE, WOOD, BEAVER, WORKS, defaults } from '../config.js';
 import { sanitizeSettings } from '../settings.js';
 import { restoreStats } from './stats.js';
 
@@ -192,7 +192,7 @@ export function validateState(state) {
   for (const v of list('hangingLoops', 100)) if (!at(v) || !num(v.year, 0, 1e9)) fail('hanging loop');
   for (const d of list('dams', 100)) {
     if (!at(d) || !nums(d, ['crest', 'natural'], -1e5, 1e5) || !nums(d, ['id', 'age', 'radius'], 0, 1e9)) fail('dam');
-    if (d.kind !== undefined && !['slide', 'beaver'].includes(d.kind)) fail('dam kind');
+    if (d.kind !== undefined && !['slide', 'beaver', 'weir'].includes(d.kind)) fail('dam kind');
     if (d.life !== undefined && !num(d.life, 0, 1e9)) fail('dam life');
     if (!(d.cells instanceof Int32Array) || d.cells.length > n || d.cells.some((i) => i < 0 || i >= n)) fail('dam lake');
   }
@@ -200,6 +200,15 @@ export function validateState(state) {
   for (const v of list('jams', WOOD.maxJams)) {
     if (!at(v) || !nums(v, ['height'], 0, 10) || !nums(v, ['id', 'age', 'life'], 0, 1e9) || (v.side !== 1 && v.side !== -1)) fail('log jam');
   }
+  for (const w of list('works', WORKS.max)) {
+    if (!['straighten', 'weir', 'bridge', 'embankment'].includes(w?.kind) || !at(w) || !num(w.id, 0, 1e9) || !num(w.year, 0, 1e9)) fail('work');
+    if (w.kind === 'straighten' && !(num(w.x0, -1, VALLEY.length + 1) && num(w.x1, -1, VALLEY.length + 1) && num(w.y0, -1, VALLEY.width + 1) && num(w.y1, -1, VALLEY.width + 1))) fail('straightened reach');
+    if ((w.kind === 'weir' || w.kind === 'bridge') && !nums(w, ['dirx', 'diry'], -1.01, 1.01)) fail('work direction');
+    if (w.kind === 'weir' && !num(w.dam, 0, 1e9)) fail('weir');
+    if (w.cells !== undefined && (!(w.cells instanceof Int32Array) || w.cells.length > n || w.cells.some((i) => i < 0 || i >= n))) fail('work cells');
+    if ((w.kind === 'straighten' || w.kind === 'embankment') && !(w.cells instanceof Int32Array)) fail('work cells');
+  }
+  if (state.workCount !== undefined && (!Number.isInteger(state.workCount) || state.workCount < 0)) fail('work count');
   if (state.jamCount !== undefined && (!Number.isInteger(state.jamCount) || state.jamCount < 0)) fail('jam count');
   for (const o of state.oxbows) if (o.lodge !== undefined && typeof o.lodge !== 'boolean') fail('oxbow lodge');
   // Gullies no bigger than the engine makes: their cost each step follows their size.

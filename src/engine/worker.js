@@ -163,6 +163,7 @@ function handle(m) {
     case 'flood': engine.triggerFlood(); break;
     case 'dropBase': engine.dropBaseLevel(m.metres); dirty = true; break;
     case 'landslide': engine.triggerLandslide(); dirty = true; break;
+    case 'build': engine.build(m.kind, m.x, m.y); dirty = true; break;
     case 'paint': engine.paint(m.x, m.y, m.radius, m.on); dirty = true; break;
     default: break;
   }

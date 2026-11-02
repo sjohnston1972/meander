@@ -104,6 +104,14 @@ export function createControls(settings, actions) {
   add(cut, 'chuteChance').name('Chute chance per flood yr');
   add(cut, 'infillRate').name('Oxbow infill speed');
 
+  // --- Engineering ---
+  const eng = gui.addFolder('Engineering');
+  help(eng.add({ f: () => actions.place('straighten') }, 'f').name('Straighten a reach'), 'straighten');
+  help(eng.add({ f: () => actions.place('weir') }, 'f').name('Build a weir'), 'weir');
+  help(eng.add({ f: () => actions.place('bridge') }, 'f').name('Build a bridge'), 'bridge');
+  help(eng.add({ f: () => actions.place('embankment') }, 'f').name('Build flood embankments'), 'embankment');
+  help(eng.add({ f: () => actions.removeWorks() }, 'f').name('Remove all works'), 'removeWorks');
+
   // --- Model (advanced) ---
   const model = gui.addFolder('Model (advanced)');
   add(model, 'omega').name('Omega Ω');
@@ -138,7 +146,7 @@ export function createControls(settings, actions) {
   help(share.add({ prev: () => actions.restorePrevious() }, 'prev').name('Restore earlier river'), 'restorePrevious');
   const recCtrl = help(share.add({ rec: () => actions.toggleRecording() }, 'rec').name('Record time-lapse'), 'record');
 
-  for (const f of [flow, channel, banks, veg, cut, scene, share]) f.close();
+  for (const f of [flow, channel, banks, veg, cut, eng, scene, share]) f.close();
 
   return {
     gui,

@@ -1,7 +1,7 @@
 // The simulation engine. Owns the river centreline, the oxbows and the
 // floodplain grid, advances them one fixed time step per tick(), and hands out
 // snapshots for the renderer. Pure JavaScript; never touches three.js.
-import { VALLEY, DT, CENTRELINE, FLOODS, FLOODPLAIN, THALWEG, RENDER, SURFACE, BRAID, HILLS, SEDIMENT, LAKE, TRIB, GRAIN, WOOD, BEAVER } from '../config.js';
+import { VALLEY, DT, CENTRELINE, FLOODS, FLOODPLAIN, THALWEG, RENDER, SURFACE, BRAID, HILLS, SEDIMENT, LAKE, TRIB, GRAIN, WOOD, BEAVER, WORKS } from '../config.js';
 
 const RENDER_FEATURE_TICKS = RENDER.featureEveryTicks;
 const BEDROCK_SEND_TICKS = 40; // at most every 10 years
@@ -26,6 +26,7 @@ import {
 import { wetness, climateSettings, climatePhase } from './climate.js';
 import { newStats, accumulate, maybeRecord, saveStats, restoreStats, statsForSnapshot } from './stats.js';
 import { backwater, backwaterReach, jamChance, wetUpstream, beaverSite } from './jams.js';
+import { pinnedPoints, holdLines, lineBanks, buildEmbankments, clearCells } from './works.js';
 import { exp, pow, hypot, sin, cos } from './dmath.js';
 
 export class Engine {
@@ -66,6 +67,8 @@ export class Engine {
     this.dams = [];             // landslide and beaver dams: [{ id, kind, x, y, crest, natural, age, life, radius, cells }]
     this.jams = [];             // log jams: [{ id, x, y, height, age, life, side }]
     this.jamCount = 0;
+    this.works = [];            // engineering works the visitor has placed (see works.js)
+    this.workCount = 0;
     this.damCount = 0;
     this.rate = new Float64Array(x.length);
     this.curv = new Float64Array(x.length);
@@ -153,6 +156,7 @@ export class Engine {
       slides: this.slides.map((v) => ({ ...v })), slideMarks: this.slideMarks.map((v) => ({ ...v })),
       dams: this.dams.map((d) => ({ ...d, cells: d.cells.slice() })), damCount: this.damCount,
       jams: this.jams.map((v) => ({ ...v })), jamCount: this.jamCount,
+      works: this.works.map((w) => ({ ...w, cells: w.cells ? w.cells.slice() : undefined })), workCount: this.workCount,
       gullies: this.gullies.map((v) => ({ ...v, px: v.px.slice(), py: v.py.slice() })),
       hangingLoops: this.hangingLoops.map((v) => ({ ...v })),
       trib: this.trib ? {
@@ -219,6 +223,8 @@ export class Engine {
     }));
     this.jams = (st.jams || []).map((v) => ({ id: v.id, x: v.x, y: v.y, height: v.height, age: v.age, life: v.life, side: v.side }));
     this.jamCount = st.jamCount ?? 0;
+    this.works = (st.works || []).map((w) => ({ ...w, cells: w.cells ? Int32Array.from(w.cells) : undefined }));
+    this.workCount = st.workCount ?? 0;
     this.damCount = st.damCount ?? 0;
     this.hangingLoops = (st.hangingLoops || []).map((v) => ({ x: v.x, y: v.y, year: v.year }));
     this.gullies = (st.gullies || []).map((v) => ({
@@ -788,6 +794,8 @@ export class Engine {
     for (let i = prot; i < n - prot; i++) k[i] = base * this.localErodibility(i);
     if (this.dams.length) { const pool = this.pooledPoints(); for (let i = 0; i < n; i++) if (pool[i]) k[i] = 0; } // a lake does not migrate
     if (this.lake) for (let i = Math.max(0, this.mouth); i < n; i++) k[i] = 0; // nor does the river's line out over the valley-end lake
+    const pinned = this.works.length ? pinnedPoints(this.works, this.x, this.y, W) : null; // lined banks and bridges hold it
+    if (pinned) for (let i = 0; i < n; i++) if (pinned[i]) k[i] = 0;
     if (this.trib) { const more = Math.sqrt(1 + s.tributary); for (let i = Math.min(this.trib.j, n); i < n; i++) k[i] *= more; } // more water below the junction
     const rate = migrationRate(this.x, this.y, c, k, { omega: s.omega, gamma: s.gamma, alpha: s.alpha }, ds, W);
     // Bank heterogeneity: a little random lateral wobble seeds bends on
@@ -798,6 +806,7 @@ export class Engine {
     if (this.slides.length) this.pushFromSlides(rate);
     if (this.trib) this.pushFromTributary(rate);
     if (this.jams.length) this.pushFromJams(rate);
+    if (pinned) for (let i = 0; i < n; i++) if (pinned[i]) rate[i] = 0;
     this.rate = rate;
     // Valley walls the river eats into: material above an ordinary bank
     // (terrace and gorge walls) joins the load, m^3/yr per point.
@@ -823,18 +832,26 @@ export class Engine {
     if (this.grain && this.grain.length === this.x.length) {
       ({ x: this.x, y: this.y, fields: [this.aggr, this.sedWall, this.grain] } = resample(this.x, this.y, ds, [this.aggr, wall, this.grain]));
     } else ({ x: this.x, y: this.y, fields: [this.aggr, this.sedWall] } = resample(this.x, this.y, ds, [this.aggr, wall]));
+    if (this.works.length) holdLines(this.works, this.x, this.y, W);
 
     // 4. Cutoffs (a braided river has no meander loops to cut off).
+    // Engineers keep a lined reach or a bridge from being cut off.
     const minSep = Math.round((CENTRELINE.minSeparationWidths * W) / ds);
+    const held = (hit) => {
+      if (!this.works.length) return false;
+      const m = pinnedPoints(this.works, this.x, this.y, W);
+      if (m) for (let i = hit.i; i <= hit.j; i++) if (m[i]) return true;
+      return false;
+    };
     for (let guard = 0; guard < 3 && this.braid < 0.5; guard++) {
       const hit = findNeckCutoff(this.x, this.y, minSep, s.cutoffDistance * W, prot);
-      if (!hit) break;
+      if (!hit || held(hit)) break;
       this.cutoff(hit.i, hit.j, 'neck');
     }
     if (this.flood > 0 && this.braid < 0.5) {
       const c2 = curvature(this.x, this.y);
       const hit = findChuteCutoff(this.x, this.y, c2, this.rng, s.chuteChance * DT, ds, W, prot);
-      if (hit) this.cutoff(hit.i, hit.j, 'chute');
+      if (hit && !held(hit)) this.cutoff(hit.i, hit.j, 'chute');
     }
 
     // 5. Floodplain: carve the channel, age oxbows, grow land.
@@ -1102,7 +1119,7 @@ export class Engine {
   fillDam(d) {
     const j = this.nearestPoint(d.x, d.y);
     const k = Math.max(0, j - 3);
-    const cells = fillPond(this.grid, cellIndex(this.grid, this.x[k], this.y[k]), d.crest, d.x, d.y, d.radius, d.kind === 'beaver');
+    const cells = fillPond(this.grid, cellIndex(this.grid, this.x[k], this.y[k]), d.crest, d.x, d.y, d.radius, d.kind === 'beaver' || d.kind === 'weir');
     if (!cells) return false;
     d.cells = cells;
     return true;
@@ -1116,7 +1133,7 @@ export class Engine {
     for (let k = this.dams.length - 1; k >= 0; k--) {
       const d = this.dams[k];
       d.age += dt;
-      const kept = d.kind === 'beaver' && d.age < d.life; // a colony keeps its dam in repair
+      const kept = (d.kind === 'beaver' && d.age < d.life) || d.kind === 'weir'; // a colony keeps its dam in repair; a weir is concrete
       if (!kept) d.crest -= HILLS.damErosion * dt * (1 + HILLS.damFloodErosion * this.flood);
       const above = d.crest - d.natural;
       let gone = !kept && above <= 0.1; // a colony keeps even a silted-up dam (its pond becomes a meadow)
@@ -1141,6 +1158,80 @@ export class Engine {
       }
     }
     this.computeLevels();
+  }
+
+  // Place an engineering work near (x, y). Returns false, with an event
+  // saying why, when it cannot go there.
+  build(kind, x, y) {
+    const s = this.settings, W = s.channelWidth;
+    if (kind === 'remove') return this.removeWorks();
+    const fail = (why) => { this.events.push({ type: 'buildFailed', why, x, y, year: this.year }); return false; };
+    const n = this.active;
+    const prot = CENTRELINE.endProtection;
+    const j = this.nearestPoint(x, y);
+    if (hypot(this.x[j] - x, this.y[j] - y) > 3 * W) return fail('Click on the river, or right beside it');
+    if (j < prot + 6 || j > n - prot - 6) return fail('That is too close to the end of the river');
+    if (this.works.length >= WORKS.max) return fail('There are as many works as the valley can take: remove some first');
+    const id = ++this.workCount;
+    const dir = (i) => {
+      const i0 = Math.max(0, i - 1), i1 = Math.min(this.x.length - 1, i + 1);
+      const dx = this.x[i1] - this.x[i0], dy = this.y[i1] - this.y[i0];
+      const l = hypot(dx, dy) || 1;
+      return [dx / l, dy / l];
+    };
+    if (kind === 'straighten') {
+      const arc = arcLength(this.x, this.y);
+      let a = j, b = j;
+      while (a > prot + 2 && arc[j] - arc[a] < WORKS.straightenHalf) a--;
+      while (b < n - prot - 3 && arc[b] - arc[j] < WORKS.straightenHalf) b++;
+      const x0 = this.x[a], y0 = this.y[a], x1 = this.x[b], y1 = this.y[b];
+      if (hypot(x1 - x0, y1 - y0) < 0.95 * (arc[b] - arc[a])) this.cutoff(a, b, 'straighten'); // the old bends become a lake
+      this.computeLevels();
+      this.stamp();
+      const cells = lineBanks(this.grid, x0, y0, x1, y1, W);
+      this.works.push({ id, kind, x: (x0 + x1) / 2, y: (y0 + y1) / 2, x0, y0, x1, y1, cells, year: this.year });
+    } else if (kind === 'weir') {
+      if (this.dams.some((d) => hypot(d.x - this.x[j], d.y - this.y[j]) < HILLS.damSpacing)) return fail('There is already a dam or weir close by');
+      if (!this.makeDam(j, WORKS.weirHeight, 3 * W, 'weir')) return fail('A weir will not hold the water there');
+      const d = this.dams[this.dams.length - 1];
+      const [dirx, diry] = dir(j);
+      this.works.push({ id, kind, x: d.x, y: d.y, dirx, diry, dam: d.id, year: this.year });
+    } else if (kind === 'bridge') {
+      const [dirx, diry] = dir(j);
+      this.works.push({ id, kind, x: this.x[j], y: this.y[j], dirx, diry, year: this.year });
+    } else if (kind === 'embankment') {
+      const arc = arcLength(this.x, this.y);
+      let a = j, b = j;
+      while (a > prot && arc[j] - arc[a] < WORKS.embankHalf) a--;
+      while (b < n - prot - 1 && arc[b] - arc[j] < WORKS.embankHalf) b++;
+      const { cells } = buildEmbankments(this.grid, this.x, this.y, a, b, WORKS.embankOffset * W, WORKS.embankHeight);
+      this.works.push({ id, kind, x: this.x[j], y: this.y[j], cells, year: this.year });
+    } else return fail('Unknown work');
+    this.events.push({ type: 'built', kind, x, y, year: this.year });
+    this.features = this.findFeatures();
+    return true;
+  }
+
+  // Take every work away. A weir's pool drains and the river is free to
+  // carry off the sediment it trapped; lined banks and embankments go.
+  removeWorks() {
+    if (!this.works.length) { this.events.push({ type: 'buildFailed', why: 'There are no works to remove', x: 0, y: 0, year: this.year }); return false; }
+    const g = this.grid;
+    for (const w of this.works) {
+      if (w.cells) clearCells(g, w.cells, w.kind === 'embankment');
+      if (w.kind === 'weir') {
+        const k = this.dams.findIndex((d) => d.id === w.dam);
+        if (k >= 0) {
+          for (const i of this.dams[k].cells) if (!g.channel[i]) { g.surface[i] = SURFACE.WETLAND; g.veg[i] = Math.min(g.veg[i], 0.2); }
+          this.dams.splice(k, 1);
+        }
+      }
+    }
+    this.works = [];
+    this.computeLevels();
+    this.events.push({ type: 'removed', x: 0, y: 0, year: this.year });
+    this.features = this.findFeatures();
+    return true;
   }
 
   // Wood in the river, once a year: jams rot, wash out or are left behind as
@@ -1637,11 +1728,21 @@ export class Engine {
     }))];
     for (const d of ponds) {
       const beaver = d.kind === 'beaver';
-      out.push({ type: beaver ? 'beaverdam' : 'landslidedam', x: d.x, y: d.y, level: d.crest });
-      if (d.cells.length > (beaver ? 6 : 20)) {
+      const weir = d.kind === 'weir';
+      out.push({ type: beaver ? 'beaverdam' : weir ? 'weir' : 'landslidedam', x: d.x, y: d.y, level: d.crest });
+      if (d.cells.length > (beaver || weir ? 6 : 20)) {
         const i = d.cells[Math.floor(d.cells.length / 2)];
         const cx = i % g.cols, cy = (i - cx) / g.cols;
-        out.push({ type: beaver ? 'beaverpond' : 'landslidelake', x: (cx + 0.5) * g.cell, y: (cy + 0.5) * g.cell, level: d.crest });
+        out.push({ type: beaver ? 'beaverpond' : weir ? 'weirpool' : 'landslidelake', x: (cx + 0.5) * g.cell, y: (cy + 0.5) * g.cell, level: d.crest });
+      }
+    }
+    for (const w of this.works) {
+      if (w.kind === 'straighten') out.push({ type: 'straightened', x: w.x, y: w.y, level: this.level[this.nearestPoint(w.x, w.y)] });
+      else if (w.kind === 'bridge') out.push({ type: 'bridge', x: w.x, y: w.y, level: this.level[this.nearestPoint(w.x, w.y)] + 6 });
+      else if (w.kind === 'embankment' && w.cells.length) {
+        const i = w.cells[Math.floor(w.cells.length / 4)];
+        const cx = i % g.cols, cy = (i - cx) / g.cols;
+        out.push({ type: 'embankment', x: (cx + 0.5) * g.cell, y: (cy + 0.5) * g.cell });
       }
     }
     for (const jm of this.jams) out.push({ type: 'logjam', x: jm.x, y: jm.y, level: this.level[this.nearestPoint(jm.x, jm.y)] });
@@ -1799,6 +1900,12 @@ export class Engine {
       ponds: [...this.dams.map((d) => ({ id: d.id, level: d.crest, cells: d.cells })),
         ...(this.trib?.dams || []).filter((d) => d.crest !== undefined && d.cells.length).map((d) => ({ id: `t${d.id}`, level: d.crest, cells: d.cells }))],
       wood: this.woodSnapshot(),
+      works: this.works.filter((w) => w.kind === 'weir' || w.kind === 'bridge').map((w) => {
+        const j = this.nearestPoint(w.x, w.y);
+        const dam = w.kind === 'weir' ? this.dams.find((d) => d.id === w.dam) : null;
+        return { kind: w.kind, id: w.id, x: w.x, y: w.y, dirx: w.dirx, diry: w.diry, width: this.settings.channelWidth,
+          level: dam ? dam.crest : this.level[j], bed: this.level[j] - this.depth, bank: this.level[j] - this.depth + this.settings.bankHeight };
+      }),
       lake: this.lake ? { level: this.lakeLevel, version: this.lake.version, cells: this.lake.version !== this.sentLakeVersion ? this.lake.cells : null } : null,
       channels: [...(this.trib && this.trib.level && this.trib.level.length === this.trib.x.length ? [{
         kind: 'tributary', x: Float32Array.from(this.trib.x), y: Float32Array.from(this.trib.y),

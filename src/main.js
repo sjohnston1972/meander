@@ -10,6 +10,7 @@ import { createVegetation } from './render/vegetation.js';
 import { createEffects } from './render/effects.js';
 import { createLabels } from './render/labels.js';
 import { createWood } from './render/wood.js';
+import { createWorks } from './render/works.js';
 import { createSim } from './sim.js';
 import { createControls } from './ui/controls.js';
 import { createCrossSection } from './ui/crosssection.js';
@@ -58,11 +59,12 @@ async function start() {
   const vegetation = createVegetation(QUALITY.high.trees, QUALITY.high.grass);
   const effects = createEffects();
   const wood = createWood();
+  const works = createWorks();
   const labels = createLabels(document.getElementById('labels'), document.getElementById('card'));
   const section = createCrossSection();
   const graphs = createGraphs();
   graphs.show(settings.showGraphs);
-  view.scene.add(terrain.group, water.group, trails.group, particles.points, vegetation.group, effects.group, wood.group);
+  view.scene.add(terrain.group, water.group, trails.group, particles.points, vegetation.group, effects.group, wood.group, works.group);
 
   let snapshot = null;
   let lastTerrainAt = 0, lastVegAt = 0;
@@ -122,6 +124,7 @@ async function start() {
     refreshTerrain(first);
     water.update(snap, settings.exaggeration, settings.waterOpacity, floodVisual);
     wood.update(snap, settings.exaggeration);
+    works.update(snap, settings.exaggeration);
     trails.update(snap, settings.exaggeration, settings.showTrails, settings.showThalweg && !braided(snap));
     particles.setSnapshot(snap, quality().particles);
     section.refresh(snap);
@@ -138,6 +141,9 @@ async function start() {
       else if (ev.type === 'landslide') { toast(`Landslide in year ${yr}`); effects.spawn('collapse', ev.x, ev.y, groundHeight(ev.x, ev.y)); }
       else if (ev.type === 'landslidedam') toast(`A landslide has dammed the river in year ${yr}`);
       else if (ev.type === 'outburst') toast(ev.kind === 'beaver' ? `A beaver dam burst in year ${yr}` : `Landslide dam burst in year ${yr}: flood!`);
+      else if (ev.type === 'built') toast(`${WORK_NAMES[ev.kind] || 'Work'} built in year ${yr}`);
+      else if (ev.type === 'buildFailed') toast(ev.why);
+      else if (ev.type === 'removed') toast(`All works removed in year ${yr}`);
       else if (ev.type === 'beaverdam') toast(`Beavers have built a dam in year ${yr}`);
       else if (ev.type === 'wetPeriod') toast(`A wetter period begins in year ${yr}: more water, more floods, more sediment`);
       else if (ev.type === 'dryPeriod') toast(`A drier period begins in year ${yr}: less water and sediment`);
@@ -187,7 +193,18 @@ async function start() {
     toast('Reset');
   }
 
+  // Placing an engineering work: the next click on the river puts it there.
+  let placing = null;
+  const WORK_NAMES = { straighten: 'Straightened reach', weir: 'Weir', bridge: 'Bridge', embankment: 'Flood embankments' };
+  function stopPlacing() { placing = null; canvas.style.cursor = settings.paintRock ? 'crosshair' : ''; }
+
   const actions = {
+    place(kind) {
+      placing = kind;
+      canvas.style.cursor = 'crosshair';
+      toast(`Click on the river where you want the ${WORK_NAMES[kind].toLowerCase()} (Esc to cancel)`);
+    },
+    removeWorks() { sim.build('remove', 0, 0); },
     togglePlay() {
       sim.toggle();
       controls.setPlaying(sim.playing);
@@ -218,6 +235,7 @@ async function start() {
         refreshTerrain(true);
         water.update(snapshot, settings.exaggeration, settings.waterOpacity, floodVisual);
         wood.update(snapshot, settings.exaggeration);
+        works.update(snapshot, settings.exaggeration);
         trails.update(snapshot, settings.exaggeration, settings.showTrails, settings.showThalweg && !braided(snapshot));
       }
     },
@@ -280,7 +298,7 @@ async function start() {
     else if (e.key === '3') flyToBend();
     else if (e.key === '4') view.flyTo(CAMERAS.topdown.pos, CAMERAS.topdown.target);
     else if (e.key === '?') document.getElementById('help').classList.toggle('show');
-    else if (e.key === 'Escape') { section.hide(); document.getElementById('card').classList.remove('show'); }
+    else if (e.key === 'Escape') { if (placing) { stopPlacing(); toast('Cancelled'); } section.hide(); document.getElementById('card').classList.remove('show'); }
   });
   document.getElementById('help-btn').onclick = () => document.getElementById('help').classList.toggle('show');
   document.getElementById('help-close').onclick = () => document.getElementById('help').classList.remove('show');
@@ -315,6 +333,12 @@ async function start() {
   window.addEventListener('pointerup', () => { painting = false; });
   canvas.addEventListener('click', (e) => {
     if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return; // it was a drag
+    if (placing) {
+      const hit = pickGround(e);
+      if (hit) sim.build(placing, hit.x + VALLEY.length / 2, hit.z + VALLEY.width / 2);
+      stopPlacing();
+      return;
+    }
     if (settings.paintRock) return;
     if (!settings.crossSectionOnClick || !snapshot) return;
     const hit = pick(e, [water.river, terrain.mesh]);

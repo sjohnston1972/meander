@@ -261,6 +261,19 @@ export const SEDIMENT = {
   maxLoadExcess: 3,        // Auto braiding counts a load at most this many times what comes in from upstream
 };
 
+// --- Engineering works (placed by clicking near the river) ---
+export const WORKS = {
+  max: 12,                 // works at once
+  straightenHalf: 600,     // metres of river either side of the click that a straightening replaces with a straight cut
+  liningHold: 0.7,         // channel widths: river points this close to a lined reach cannot move
+  weirHeight: 1.5,         // metres a weir holds the water up
+  bridgeHold: 1.5,         // channel widths either side of a bridge over which its abutments hold the river
+  embankHalf: 800,         // metres of river either side of the click that embankments follow
+  embankOffset: 1.8,       // channel widths from the river's line to each embankment
+  embankHeight: 2.5,       // metres embankments stand above the floodplain
+  embankHalfWidth: 12,     // metres: half the width of an embankment
+};
+
 // --- Grain sorting (sand and gravel in the bed) ---
 export const GRAIN = {
   start: 0.5,              // fraction of gravel in the bed surface to begin with, and in the ground beneath
@@ -553,6 +566,11 @@ export const HELP = {
   saveFile: 'Download the whole river, landscape and history as a .meander file you can open again later',
   openFile: 'Open a .meander file saved earlier and carry on from where it was',
   landslide: 'Make the tallest valley wall give way now. Walls only get tall enough once the river has cut well down (turn up incision)',
+  straighten: 'Click on the river to straighten 1.2 km of it, as engineers once did: a straight cut with stone-lined banks. The old bends are left as a lake. Watch what the river does above and below',
+  weir: 'Click on the river to build a weir: a low concrete dam that holds the water 1.5 m up. Sediment fills the pool behind it, and the river below runs clear and scours',
+  bridge: 'Click on the river to build a bridge. Its abutments hold the river in place there, while the bends either side keep moving',
+  embankment: 'Click on the river to build flood embankments along 1.6 km of it: ridges either side that the river cannot easily cut through',
+  removeWorks: 'Take away every work: a removed weir releases the sediment it trapped, and lined banks start to erode again',
   restorePrevious: 'Bring back the river you had before the current one (kept when it ran at least 100 years). Your river is also saved in this browser automatically'
 };
 
@@ -657,6 +675,26 @@ export const EXPLANATIONS = {
   scoured: {
     title: 'Scoured reach',
     text: 'The river can carry more than reaches it here, so it picks up the difference from its own bed and cuts down, until it reaches bedrock.',
+  },
+  straightened: {
+    title: 'Straightened reach',
+    text: 'Engineers cut this reach straight and lined its banks with stone, so it cannot move. The bends it replaced are left as a lake. The river above and below keeps meandering.',
+  },
+  weir: {
+    title: 'Weir',
+    text: 'A low concrete dam across the river. It holds the water up behind it, and the pool slowly fills with sediment. The river below gets less sediment and scours its bed.',
+  },
+  weirpool: {
+    title: 'Weir pool',
+    text: 'The water held up behind a weir. The river drops its sand and gravel as it slows into the pool, so the pool fills in over the years.',
+  },
+  bridge: {
+    title: 'Bridge',
+    text: 'The bridge\'s abutments hold the river in place beneath it. The bends either side keep migrating, so the river comes at the bridge at ever sharper angles.',
+  },
+  embankment: {
+    title: 'Flood embankment',
+    text: 'A ridge built to keep floods off the land behind it. The river cannot easily cut through it, so it is held between the embankments.',
   },
   logjam: {
     title: 'Log jam',
