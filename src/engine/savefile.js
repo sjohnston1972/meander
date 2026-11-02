@@ -135,7 +135,7 @@ export function validateState(state) {
   if (state.sediment !== undefined) {
     const sd = state.sediment;
     if (!sd || typeof sd !== 'object') fail('sediment');
-    for (const k of ['out', 'exported', 'trapped', 'stored', 'inflow', 'fromWalls', 'fromSlides', 'fromGullies', 'delta']) {
+    for (const k of ['out', 'exported', 'trapped', 'stored', 'inflow', 'fromWalls', 'fromSlides', 'fromGullies', 'delta', 'fromTributary']) {
       if (sd[k] !== undefined && !num(sd[k], -1e15, 1e15)) fail(`sediment ${k}`);
     }
   }
@@ -162,6 +162,14 @@ export function validateState(state) {
     if (!num(L.pending, 0, 1e12) || !num(L.fines, 0, 1e12) || !num(L.deposited, 0, 1e15) || !num(L.nextSwitch, -1, 1e9)) fail('lake');
     if (!Array.isArray(L.dists) || L.dists.length > LAKE.distCount || L.dists.some((d) => !num(d?.angle, -Math.PI, Math.PI))) fail('distributaries');
   } else if (s.valleyEnd === 'lake') fail('lake');
+
+  // The tributary (absent from older saves, null without one).
+  if (state.trib !== undefined && state.trib !== null) {
+    const t = state.trib;
+    if (!finite(t.x) || !finite(t.y) || t.x.length !== t.y.length || t.x.length < 2 || t.x.length > 20000 || !inside(t.x, t.y)) fail('tributary course');
+    if (!num(t.entryX, 0, VALLEY.length) || !num(t.entryX0, 0, VALLEY.length) || !num(t.entryY, 0, VALLEY.width) || (t.side !== 1 && t.side !== -1)) fail('tributary entry');
+    if (!Number.isInteger(t.j) || t.j < 0 || t.j >= n0 || !num(t.age, 0, 1e9)) fail('tributary junction');
+  }
 
   // Valley walls (absent from saves made before landslides and gullies).
   const nums = (v, keys, lo, hi) => keys.every((k) => num(v?.[k], lo, hi));

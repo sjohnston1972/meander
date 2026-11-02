@@ -13,7 +13,7 @@ const label = process.argv[2] || 'scene';
 const hash = process.argv[3] || 'seed=1';
 const YEARS = Number(process.argv[4] || 1000);
 const closeTypes = (process.argv[5] || '').split(',').filter(Boolean);
-const PORT = 4824;
+const PORT = 4830 + Math.floor(Math.random() * 60); // a fresh port: a preview server from an earlier run may linger
 
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -39,7 +39,8 @@ try {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto(`http://localhost:${PORT}/?autoplay=0&fresh#${hash}`);
-  await page.waitForFunction(() => window.meander && window.meander.snapshot, null, { timeout: 60000 });
+  await page.waitForFunction(() => window.meander && window.meander.snapshot, null, { timeout: 60000 })
+    .catch((err) => { console.error('[console errors]', errors); throw err; });
   await page.evaluate((y) => window.meander.sim.step(y), YEARS);
   await page.waitForFunction((y) => window.meander.snapshot.year >= y, YEARS, { timeout: 1800000, polling: 2000 });
   await page.waitForTimeout(2000);
@@ -104,6 +105,8 @@ try {
   if (errors.length) { console.error('[console errors]', errors); exitCode = 1; }
   await browser.close();
 } finally {
-  server.kill();
+  // On Windows the shell's child (the preview server) outlives a plain kill.
+  if (process.platform === 'win32') spawn('taskkill', ['/F', '/T', '/PID', String(server.pid)], { stdio: 'ignore' });
+  else server.kill();
 }
 process.exit(exitCode);

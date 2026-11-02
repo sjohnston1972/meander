@@ -292,12 +292,15 @@ export const TRIB = {
   depthFraction: 0.7,      // its depth as a fraction of the main river's
   load: 1.6,               // it brings this many times what its own flow can carry at the main river's slope
   fall: 2.5,               // its fall per metre of its own length, relative to the valley slope (it comes down off the hills)
-  fanWidths: 2.5,          // main channel widths around the junction that its fan covers
-  fanRate: 0.02,           // m/yr the fan builds up
-  fanHeight: 1.2,          // metres above the floodplain the fan reaches at its apex
+  fanWidths: 6,            // main channel widths its fan spreads out from the valley wall
+  fanRate: 0.06,           // m/yr the fan builds up (times the tributary's share of the flow)
+  fanHeight: 3,            // metres above the floodplain the fan reaches at its apex, against the wall
   push: 2,                 // m/yr the fan pushes the main river away from the junction, times the tributary's share
   pushWidths: 4,           // main channel widths below the junction it pushes over
   migration: 1,            // its migration per unit curvature, relative to the main river's
+  wallWidths: 4,           // its own widths from the valley wall over which its migration fades out
+  entryWander: 3,          // its own widths its entry point swings either side, as bends pass in its own valley
+  entryYears: 120,         // years, roughly, for the entry point to swing from one side to the other
 };
 
 // --- Climate swings (climateSwing) ---
@@ -467,7 +470,7 @@ export const HELP = {
   alluviumDepth: 'Depth of soft river sediment over bedrock. A river that cuts deeper than this meets rock, which erodes more slowly and shows in the terrace walls',
   sedimentSupply: 'How much sand and gravel comes into the valley from upstream (1 = as much as the river can carry), and how quickly bars and levees build. More than the river can carry builds its bed and floodplain up and makes it likelier to braid; less and it scours its bed',
   valleyEnd: 'Open: the river runs on out of the valley. Lake: the valley ends in a lake, and the river builds a delta out into it with everything it carries. Needs a reset',
-  tributary: 'A side river joins from one of the valley walls. Its flow as a share of the main river\'s (0 = none). It brings a heavy load of gravel, builds a fan where it joins, and pushes the main river aside',
+  tributary: 'A side river joins from one of the valley walls. Its flow as a share of the main river\'s (0 = none). It builds a fan where it comes out of the hills, and its gravel builds a bar where it joins that pushes the main river aside',
   climateSwing: 'Wet and dry periods come and go over the centuries: in wet ones the river carries more water, floods more often and brings more sediment. 0 = a steady climate',
   pattern: 'Meandering: one winding channel. Braided: many shallow threads splitting and rejoining across a wide gravel bed. Auto: braids when the valley is steep, the flow strong and the sediment plentiful',
   erodibility: 'How easily banks erode. 1 is soft lowland soil',
@@ -629,11 +632,11 @@ export const EXPLANATIONS = {
   },
   confluence: {
     title: 'Confluence',
-    text: 'Where the tributary joins. Below it the main river carries more water, so it migrates faster and can carry more.',
+    text: 'Where the tributary joins. It brings more gravel than its own water can carry, so a bar builds at the junction and pushes the main river away. Below it the main river has more water, so it migrates faster.',
   },
   tributaryfan: {
     title: 'Tributary fan',
-    text: 'The tributary brings more gravel than the main river can take away at once. It builds a low fan where it joins, which pushes the main river towards the other side of the valley.',
+    text: 'Where the tributary comes out of the hills onto the valley floor it slows and drops much of its gravel, building a low cone out from the valley wall.',
   },
   flood: {
     title: 'Flood',
