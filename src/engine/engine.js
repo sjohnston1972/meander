@@ -23,6 +23,7 @@ import {
 import {
   newTributary, migrateTributary, joinMain, tributaryLevels, carveTributary, growFan, tribWidth, tribDepth,
 } from './tributary.js';
+import { wetness, climateSettings, climatePhase } from './climate.js';
 import { exp, pow, hypot, sin, cos } from './dmath.js';
 
 export class Engine {
@@ -74,7 +75,10 @@ export class Engine {
     this.q = this.settings.meanDischarge;
     this.grid = createGrid(this.settings, this.rng);
     this.trib = null;           // the tributary, while settings.tributary > 0 (see tributary.js)
-    this.tribNoise = null; this.mouthNoise = null; // made from the seed when first needed
+    this.tribNoise = null; this.mouthNoise = null; this.climateNoise = null; // made from the seed when first needed
+    this.wet = 0;               // how wet the climate is now, -1 to 1 (climate swings)
+    this.climatePhase = '';     // 'wet', 'dry' or ''
+    this.es = this.settings;    // the settings the river feels now (the climate moves flow, floods and sediment)
     this.lake = null;           // the lake at the valley's end and its delta (valleyEnd: 'lake')
     this.mouth = x.length - 1;  // the river's last point above open water
     if (this.settings.valleyEnd === 'lake') this.lake = Engine.newLake(makeLake(this.grid, this.settings, this.depth));
@@ -138,7 +142,7 @@ export class Engine {
       flood: this.flood, floodRemaining: this.floodRemaining, floodPending: this.floodPending,
       discharge: this.discharge, yearDischargeAt: this.yearDischargeAt,
       incision: this.incision, knickpoints: this.knickpoints.map((k) => ({ ...k })),
-      braid: this.braid, braidTime: this.braidTime,
+      braid: this.braid, braidTime: this.braidTime, climatePhase: this.climatePhase,
       slides: this.slides.map((v) => ({ ...v })), slideMarks: this.slideMarks.map((v) => ({ ...v })),
       dams: this.dams.map((d) => ({ ...d, cells: d.cells.slice() })), damCount: this.damCount,
       gullies: this.gullies.map((v) => ({ ...v, px: v.px.slice(), py: v.py.slice() })),
@@ -191,6 +195,8 @@ export class Engine {
     this.sentBedrockVersion = -1;
     this.braid = st.braid ?? 0;
     this.braidTime = st.braidTime ?? 0;
+    this.tribNoise = null; this.mouthNoise = null; this.climateNoise = null;
+    this.climatePhase = st.climatePhase || '';
     this.braidNoise = createNoise2D(this.settings.seed * 48271 + 5);
     this.threads = null;
     this.slides = (st.slides || []).map((v) => ({ x: v.x, y: v.y, dirx: v.dirx, diry: v.diry, width: v.width, age: v.age }));
@@ -222,6 +228,7 @@ export class Engine {
     } : null;
     if (this.trib) tributaryLevels(this.trib, this.settings, this.level, this.depth);
     this.events = [];
+    this.updateClimate();
     if (this.braid > 0) this.computeThreads();
     this.features = this.findFeatures();
   }
@@ -235,6 +242,7 @@ export class Engine {
   // Settings that apply from the next tick without a reset.
   applySettings(partial) {
     Object.assign(this.settings, partial);
+    this.updateClimate();
     if (partial.alluviumDepth !== undefined) setAlluvium(this.grid, this.settings.alluviumDepth);
     if (partial.valleySlope !== undefined || partial.bankHeight !== undefined) {
       // Dam crests and gully mouths are heights on the ground: they move with it.
@@ -271,7 +279,7 @@ export class Engine {
 
   // Move the braid amount towards what the pattern setting asks for.
   updatePattern() {
-    const s = this.settings;
+    const s = this.es;
     let want = s.pattern === 'braided';
     if (s.pattern === 'auto') {
       const t = BRAID.autoThreshold;
@@ -286,7 +294,7 @@ export class Engine {
   // Thread offsets from the axis: spread evenly across the belt, wandering
   // with smooth noise in distance and time, converging at both ends.
   computeThreads() {
-    const s = this.settings;
+    const s = this.es;
     const W = s.channelWidth;
     const n = this.x.length;
     const arc = arcLength(this.x, this.y);
@@ -468,7 +476,7 @@ export class Engine {
   // Carry bed material down the river for one step (see sediment.js): from
   // upstream, from what fell in this step, out past the outlet.
   sedimentStep() {
-    const s = this.settings;
+    const s = this.es;
     const N = this.x.length;
     const n = this.active;
     const ds = this.ds;
@@ -641,8 +649,22 @@ export class Engine {
     return wall * exit * ground * bank;
   }
 
-  updateDischarge() {
+  // The climate now, and the settings the river feels under it.
+  updateClimate() {
     const s = this.settings;
+    if (!(s.climateSwing > 0)) { this.wet = 0; this.es = s; return; }
+    if (!this.climateNoise) this.climateNoise = createNoise2D(s.seed * 4256249 + 53);
+    this.wet = wetness(this.climateNoise, this.year);
+    this.es = climateSettings(s, this.wet);
+    const phase = climatePhase(s, this.wet);
+    if (phase !== this.climatePhase) {
+      if (phase) this.events.push({ type: phase === 'wet' ? 'wetPeriod' : 'dryPeriod', x: VALLEY.length / 2, y: VALLEY.width / 2, year: this.year });
+      this.climatePhase = phase;
+    }
+  }
+
+  updateDischarge() {
+    const s = this.es;
     const yearIndex = Math.floor(this.year + 1e-9);
     if (yearIndex !== this.yearDischargeAt) {
       this.yearDischargeAt = yearIndex;
@@ -669,6 +691,8 @@ export class Engine {
     const s = this.settings;
     const W = s.channelWidth;
     const ds = this.ds;
+    if (s.climateSwing > 0 || this.es !== s) this.updateClimate();
+    const es = this.es;
     this.updateDischarge();
     this.updateIncision();
     this.updatePattern();
@@ -680,7 +704,7 @@ export class Engine {
 
     // 2. Migration rate.
     const n = this.x.length;
-    const q = this.flood > 0 ? s.meanDischarge * (1 + (s.floodSize - 1) * this.flood) : this.discharge;
+    const q = this.flood > 0 ? es.meanDischarge * (1 + (s.floodSize - 1) * this.flood) : this.discharge;
     this.q = q;
     const qFactor = pow(q / s.meanDischarge, CENTRELINE.dischargeExponent);
     let base = s.erodibility * CENTRELINE.migrationScale * qFactor;
@@ -749,7 +773,7 @@ export class Engine {
     if (this.tickCount % FLOODPLAIN.landEveryTicks === 0) {
       // Beds build up slowly: lifting the floodplain every few years is enough.
       if (this.tickCount % (FLOODPLAIN.landEveryTicks * SEDIMENT.floodplainEveryLand) === 0) raiseFloodplain(this.grid, this.x, this.y, this.aggr, this.refLevel, s);
-      growLand(this.grid, s, this.landDt, this.flood, this.meanWash());
+      growLand(this.grid, es, this.landDt, this.flood, this.meanWash());
       if (this.incision > 0 || this.knickpoints.length) {
         this.spontaneousSlides(this.landDt); // first, so fresh debris slumps to a stable slope at once
         this.sedBluff = new Float64Array(this.x.length);
@@ -802,7 +826,7 @@ export class Engine {
       const t = this.threads;
       const threads = n === N ? t : { ...t, tx: t.tx.map(cut), ty: t.ty.map(cut), offsets: t.offsets.map(cut) };
       stampBraided(this.grid, river, threads, this.settings, this.flood);
-    } else stampChannel(this.grid, river, this.settings, this.year, this.flood);
+    } else stampChannel(this.grid, river, this.settings, this.year, this.flood, this.es.sedimentSupply);
   }
 
   // The lake at the valley's end, once a year: what the river brought
@@ -1516,6 +1540,7 @@ export class Engine {
       trails: this.trails(),
       features: this.features,
       braid: this.threads ? this.braidSnapshot() : null,
+      climate: this.settings.climateSwing > 0 ? { wet: this.wet, phase: this.climatePhase } : null,
       sediment: {
         ...this.sediment,
         bed: Float32Array.from(this.aggr),

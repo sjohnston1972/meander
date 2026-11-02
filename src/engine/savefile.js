@@ -125,6 +125,7 @@ export function validateState(state) {
   if (!(state.rng.spare === null || state.rng.spare === undefined || Number.isFinite(state.rng.spare))) fail('random state');
   if (state.braid !== undefined && !num(state.braid, 0, 1)) fail('braid');
   if (state.braidTime !== undefined && !num(state.braidTime, 0, 1e9)) fail('braid time');
+  if (state.climatePhase !== undefined && !['', 'wet', 'dry'].includes(state.climatePhase)) fail('climate');
   if (!Array.isArray(state.knickpoints) || state.knickpoints.length > 1000
     || state.knickpoints.some((k) => !num(k.pos, 0, 1e7) || !num(k.drop, 0, 1000))) fail('knickpoints');
 

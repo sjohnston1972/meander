@@ -119,7 +119,7 @@ async function start() {
     trails.update(snap, settings.exaggeration, settings.showTrails, settings.showThalweg && !braided(snap));
     particles.setSnapshot(snap, quality().particles);
     section.refresh(snap);
-    hudYear.textContent = `Year ${Math.floor(snap.year).toLocaleString()}`;
+    hudYear.textContent = `Year ${Math.floor(snap.year).toLocaleString()}${snap.climate?.phase ? ` · ${snap.climate.phase} period` : ''}`;
     showSedimentHud(snap);
     controls.setYear(snap.year, snap.flood);
     for (const ev of snap.events) {
@@ -131,6 +131,10 @@ async function start() {
       else if (ev.type === 'landslide') { toast(`Landslide in year ${yr}`); effects.spawn('collapse', ev.x, ev.y, groundHeight(ev.x, ev.y)); }
       else if (ev.type === 'landslidedam') toast(`A landslide has dammed the river in year ${yr}`);
       else if (ev.type === 'outburst') toast(`Landslide dam burst in year ${yr}: flood!`);
+      else if (ev.type === 'wetPeriod') toast(`A wetter period begins in year ${yr}: more water, more floods, more sediment`);
+      else if (ev.type === 'dryPeriod') toast(`A drier period begins in year ${yr}: less water and sediment`);
+      else if (ev.type === 'tributary') toast('A tributary has joined the river');
+      else if (ev.type === 'tribcutoff') toast(`The tributary has cut off a loop in year ${yr}`);
       else if (ev.type === 'avulsion') toast(`The delta's distributaries have switched course in year ${yr}`);
       else if (ev.type === 'noWalls') toast('No valley wall is tall enough to give way yet. Turn up incision and let the river cut down');
     }
