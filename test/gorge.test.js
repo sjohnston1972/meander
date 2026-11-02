@@ -52,6 +52,23 @@ describe('rivers in gorges', () => {
     expect(e.findFeatures().some((f) => f.type === 'hangingloop')).toBe(true);
   });
 
+  it('start their swinging inlet without a jump, new or loaded from an older save', () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const e = new Engine({ ...defaults, quality: 'low', seed });
+      const y0 = e.y[0];
+      e.tick();
+      expect(Math.abs(e.y[0] - y0)).toBeLessThan(1);
+    }
+    const e = new Engine({ ...defaults, quality: 'low', seed: 2 });
+    run(e, 300);
+    const st = e.serialize();
+    delete st.inletY;
+    const c = Engine.fromState(st);
+    const y0 = c.y[0];
+    c.tick();
+    expect(Math.abs(c.y[0] - y0)).toBeLessThan(1);
+  });
+
   it('let an oxbow on a river that is not cutting down silt up as usual', { timeout: LONG }, () => {
     const e = new Engine({ ...defaults, quality: 'low' });
     run(e, 200);

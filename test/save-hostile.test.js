@@ -34,6 +34,25 @@ describe('hostile saves', () => {
   it('rejects a gully with a huge course', () => rejects((s) => {
     s.gullies = [{ x: 100, y: 100, dirx: 1, diry: 0, px: new Array(100000).fill(100), py: new Array(100000).fill(100), length: 10, maxLength: 300, footZ: 2, age: 1 }];
   }));
+  it('rejects more gullies than the engine ever makes', () => rejects((s) => {
+    s.gullies = Array.from({ length: 200 }, () => ({ x: 100, y: 100, dirx: 1, diry: 0, px: [100, 140], py: [100, 100], length: 10, maxLength: 300, footZ: 2, age: 1 }));
+  }));
+  it('rejects a gully longer than any the engine makes', () => rejects((s) => {
+    s.gullies = [{ x: 100, y: 100, dirx: 1, diry: 0, px: [100, 140], py: [100, 100], length: 10, maxLength: 1e7, footZ: 2, age: 1 }];
+  }));
+  it('rejects a gully whose course jumps across the valley', () => rejects((s) => {
+    s.gullies = [{ x: 100, y: 100, dirx: 1, diry: 0, px: [100, 5900], py: [100, 2900], length: 10, maxLength: 300, footZ: 2, age: 1 }];
+  }));
+  it('rejects a draining oxbow with no drain rate', () => rejects((s) => {
+    const e = new Engine({ ...defaults, quality: 'low' });
+    for (let i = 0; i < 400; i++) e.tick();
+    const n = e.x.length;
+    e.cutoff(Math.floor(n / 2) - 30, Math.floor(n / 2) + 30, 'neck');
+    e.tick();
+    Object.assign(s, e.serialize());
+    s.oxbows[0].draining = true;
+    delete s.oxbows[0].drainRate;
+  }));
   it('rejects a hanging loop that is not a list', () => rejects((s) => { s.hangingLoops = 'many'; }));
   it('rejects an oxbow with a strange drain flag', () => rejects((s) => {
     const e = new Engine({ ...defaults, quality: 'low' });

@@ -12,7 +12,7 @@ import {
   migrationRate, migrate, findNeckCutoff, spliceCutoff, findChuteCutoff,
 } from './centreline.js';
 import {
-  createGrid, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth, cellIndex, setAlluvium, stampBraided,
+  createGrid, baseLevel, stampChannel, stampOxbow, retireOxbow, growLand, sampleErodibility, paintRock, cellsNear, rebase, effectiveDepth, cellIndex, setAlluvium, stampBraided,
 } from './floodplain.js';
 import { relaxSlopes, findSlideSite, landslide, newGully, growGully } from './hillslope.js';
 import { fillPond } from './dams.js';
@@ -108,7 +108,8 @@ export class Engine {
     this.year = st.year;
     this.tickCount = st.tickCount;
     this.x = Float64Array.from(st.x); this.y = Float64Array.from(st.y);
-    this.inletY = st.inletY ?? VALLEY.width / 2;
+    this.inflowNoise = createNoise2D(this.settings.seed * 69621 + 13);
+    this.inletY = st.inletY ?? st.y[0] - this.inletSwing(st.year); // older saves: carry on from where the inlet is
     this.rate = Float64Array.from(st.rate); this.curv = Float64Array.from(st.curv); this.level = Float64Array.from(st.level);
     this.oxbows = st.oxbows.map((o) => ({ ...o, x: Float32Array.from(o.x), y: Float32Array.from(o.y), cells: Int32Array.from(o.cells) }));
     this.oxbowCount = st.oxbowCount;
@@ -122,7 +123,6 @@ export class Engine {
     this.braid = st.braid ?? 0;
     this.braidTime = st.braidTime ?? 0;
     this.braidNoise = createNoise2D(this.settings.seed * 48271 + 5);
-    this.inflowNoise = createNoise2D(this.settings.seed * 69621 + 13);
     this.threads = null;
     this.slides = (st.slides || []).map((v) => ({ x: v.x, y: v.y, dirx: v.dirx, diry: v.diry, width: v.width, age: v.age }));
     this.slideMarks = (st.slideMarks || []).map((v) => ({ x: v.x, y: v.y, year: v.year }));
@@ -161,6 +161,11 @@ export class Engine {
     Object.assign(this.settings, partial);
     if (partial.alluviumDepth !== undefined) setAlluvium(this.grid, this.settings.alluviumDepth);
     if (partial.valleySlope !== undefined || partial.bankHeight !== undefined) {
+      // Dam crests and gully mouths are heights on the ground: they move with it.
+      const old = { valleySlope: this.grid.slope, bankHeight: this.grid.bankHeight };
+      const shift = (x) => baseLevel(x, this.settings) - baseLevel(x, old);
+      for (const d of this.dams) d.crest += shift(d.x);
+      for (const v of this.gullies) if (Number.isFinite(v.footZ)) v.footZ += shift(v.x);
       rebase(this.grid, this.settings);
       this.computeLevels();
     }
@@ -254,6 +259,12 @@ export class Engine {
       }
     }
     this.threads = { offsets, tx, ty, width, widths, half };
+  }
+
+  // How far the entry point has swung from where it started, metres.
+  inletSwing(year) {
+    const T = CENTRELINE.inflowYears;
+    return CENTRELINE.inletWander * this.settings.channelWidth * 2 * (this.inflowNoise(year / T, 0.37) - this.inflowNoise(0, 0.37));
   }
 
   triggerFlood() { this.floodPending = true; }
@@ -353,12 +364,14 @@ export class Engine {
     // Tall banks only matter once the river is cutting down (terraces). On a
     // river that is not, a bank can look tall just because the water profile
     // follows the river's length while the floodplain follows the valley.
-    const tall = this.incision > 0 || this.knickpoints.length ? Engine.bankFactor(actualBank, s.bankHeight) : 1;
-    // Tall and rocky banks together never slow the river below gorgeBankFloor:
-    // their faces keep failing (slumps, landslides) and the river carries the
-    // debris away, so an entrenched river still winds and cuts off loops.
-    const gorge = rock * tall < 1 ? Math.max(CENTRELINE.gorgeBankFloor, rock * tall) : 1;
-    return wall * exit * ground * gorge;
+    const cutting = this.incision > 0 || this.knickpoints.length > 0;
+    const tall = cutting ? Engine.bankFactor(actualBank, s.bankHeight) : 1;
+    // In a gorge, tall and rocky banks together never slow the river below
+    // gorgeBankFloor: their faces keep failing (slumps, landslides) and the
+    // river carries the debris away, so an entrenched river still winds and
+    // cuts off loops.
+    const bank = cutting ? Math.max(CENTRELINE.gorgeBankFloor, Math.min(1, rock * tall)) : rock;
+    return wall * exit * ground * bank;
   }
 
   updateDischarge() {
@@ -420,7 +433,7 @@ export class Engine {
     // 3. Move, re-space. Bends passing just upstream of the valley swing
     // the river's entry point slowly from side to side.
     migrate(this.x, this.y, rate, DT);
-    const yIn = this.inletY + CENTRELINE.inletWander * W * (2 * this.inflowNoise(this.year / CENTRELINE.inflowYears, 0.37) - 1);
+    const yIn = this.inletY + this.inletSwing(this.year);
     for (let i = 0; i < prot; i++) this.y[i] = yIn;
     if (CENTRELINE.smoothingPasses > 0) {
       smooth(this.x, CENTRELINE.smoothingPasses);
@@ -485,6 +498,7 @@ export class Engine {
       rate: this.rate.length === n ? this.rate : new Float64Array(n),
       level: this.level,
       dt: DT,
+      cutting: this.incision > 0 || this.knickpoints.length > 0,
     };
     if (this.threads) stampBraided(this.grid, river, this.threads, this.settings, this.flood);
     else stampChannel(this.grid, river, this.settings, this.year, this.flood);
@@ -725,7 +739,7 @@ export class Engine {
         o.draining = true;
         o.drainRate = o.depth / HILLS.drainYears;
       }
-      o.depth -= o.draining ? Math.max(rate, o.drainRate * DT) : rate;
+      o.depth -= o.draining ? Math.max(rate, (o.drainRate || 0) * DT) : rate;
       if (o.depth <= 0) {
         retireOxbow(this.grid, o);
         if (o.draining) {

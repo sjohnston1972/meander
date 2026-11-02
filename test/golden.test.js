@@ -13,9 +13,9 @@ import { fingerprint } from './helpers.js';
 // 2026-11-02 (v1.2): re-pinned on purpose: the river's entry point now
 // swings slowly, so the reach below the inlet winds instead of staying straight.
 const GOLDEN = {
-  1: '40d5b3c9:406:2',
-  2: 'f7ed49c0:353:1',
-  3: 'cd7952ca:351:1',
+  1: 'e986ee6d:423:2',
+  2: '566a1094:357:0',
+  3: 'c96fb48f:357:0',
 };
 
 describe('default rivers are unchanged', () => {

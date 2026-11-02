@@ -51,6 +51,16 @@ describe('gullies', () => {
     expect(raised).toBeGreaterThan(3);
   });
 
+  it('keep their mouth at the ground when the bank height changes', { timeout: LONG }, () => {
+    const e = new Engine({ ...defaults, quality: 'low', incisionRate: 15 });
+    for (let i = 0; i < 3000 / DT; i++) e.tick();
+    const v = e.gullies.find((u) => Number.isFinite(u.footZ));
+    expect(v).toBeTruthy();
+    const foot = v.footZ;
+    e.applySettings({ bankHeight: e.settings.bankHeight + 3 });
+    expect(v.footZ - foot).toBeCloseTo(3, 3);
+  });
+
   it('appear in the walls of a deeply incised valley', { timeout: LONG }, () => {
     const e = new Engine({ ...defaults, quality: 'low', incisionRate: 15 });
     for (let i = 0; i < 3000 / DT; i++) e.tick();

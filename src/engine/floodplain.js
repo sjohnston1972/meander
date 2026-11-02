@@ -227,7 +227,7 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
       const h = lvl - depth;
       if (channel[i] === 2) lakeLost[i] = 1; // the river has taken this bit of lake back
       if (channel[i] !== 3 || h < height[i] || Math.abs(height[i] - h) > 0.5) height[i] = h;
-      if (bedrock[i] > height[i]) { bedrock[i] = height[i]; grid.bedrockDirty = true; } // the river planes the rock (a strath)
+      if (river.cutting && bedrock[i] > height[i]) { bedrock[i] = height[i]; grid.bedrockDirty = true; } // a river cutting down planes the rock (a strath)
       channel[i] = 1;
       list.push(i);
       chanLevel[i] = lvl;
@@ -345,7 +345,7 @@ export function stampBraided(grid, river, braid, settings, flood) {
       const lvl = lvlOf[i];
       if (channel[i] === 2) lakeLost[i] = 1;
       height[i] = lvl - deepOf[i];
-      if (grid.bedrock[i] > height[i]) { grid.bedrock[i] = height[i]; grid.bedrockDirty = true; }
+      if (river.cutting && grid.bedrock[i] > height[i]) { grid.bedrock[i] = height[i]; grid.bedrockDirty = true; }
       channel[i] = 1;
       list.push(i);
       chanLevel[i] = lvl;

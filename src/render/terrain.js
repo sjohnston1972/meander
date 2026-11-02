@@ -284,7 +284,7 @@ export function createTerrain() {
             const k = frac * Math.min(1, Math.max(0, (span / cell - 0.3) * 2));
             if (k > 0 && (s !== W || hi - h0 > st.bankHeight + 2)) {
               // Hard layers pale buff, soft layers red-brown, with faint bedding in each.
-              const C = rockHardness(h0, (cx + 0.5) * cell, st.valleySlope) ? RH : RS;
+              const C = rockHardness(h0, (cx + 0.5) * cell, st) ? RH : RS;
               const band = 0.92 + 0.08 * Math.sin(h0 * 2.1 + meadow[i] * 3);
               r += (C[0] * band - r) * k; g += (C[1] * band - g) * k; b += (C[2] * band - b) * k;
             }

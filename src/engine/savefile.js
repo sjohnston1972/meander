@@ -6,7 +6,7 @@
 // { $ta: type, o: byte offset, n: length } into the data block. Infinity and
 // -Infinity (JSON cannot hold them) are written as { $num: 'inf' | '-inf' }.
 // Compression (gzip) is left to the caller, since it is async in browsers.
-import { QUALITY, VALLEY, defaults } from '../config.js';
+import { QUALITY, VALLEY, HILLS, defaults } from '../config.js';
 import { sanitizeSettings } from '../settings.js';
 
 export const SAVE_VERSION = 1;
@@ -107,7 +107,7 @@ export function validateState(state) {
     if (!(o.cells instanceof Int32Array) || o.cells.some((i) => i < 0 || i >= n)) fail('oxbow cells');
     for (const k of ['id', 'age', 'depth', 'width', 'year', 'cx', 'cy', 'level', 'lastStampDepth']) if (!num(o[k], -1e6, 1e9)) fail(`oxbow ${k}`);
     if (o.draining !== undefined && typeof o.draining !== 'boolean') fail('oxbow draining');
-    if (o.drainRate !== undefined && !num(o.drainRate, 0, 1e6)) fail('oxbow drain rate');
+    if ((o.draining || o.drainRate !== undefined) && !num(o.drainRate, 0, 1e6)) fail('oxbow drain rate');
   }
   for (const h of state.history) {
     if (!num(h.year, -1, 1e9) || !finite(h.x) || !finite(h.y) || h.x.length !== h.y.length || h.x.length > 50000) fail('history');
@@ -144,10 +144,17 @@ export function validateState(state) {
     if (!(d.cells instanceof Int32Array) || d.cells.length > n || d.cells.some((i) => i < 0 || i >= n)) fail('dam lake');
   }
   if (state.damCount !== undefined && (!Number.isInteger(state.damCount) || state.damCount < 0)) fail('dam count');
-  for (const v of list('gullies', 200)) {
-    if (!at(v) || !nums(v, ['dirx', 'diry'], -1.01, 1.01) || !nums(v, ['length', 'maxLength', 'age'], 0, 1e7)) fail('gully');
+  // Gullies no bigger than the engine makes: their cost each step follows their size.
+  const maxPoints = Math.ceil(HILLS.gullyMaxLength / 40) + 3;
+  for (const v of list('gullies', HILLS.maxGullies)) {
+    if (!at(v) || !nums(v, ['dirx', 'diry'], -1.01, 1.01) || !num(v.age, 0, 1e9)
+      || !num(v.maxLength, 0, HILLS.gullyMaxLength + 1) || !num(v.length, 0, v.maxLength)) fail('gully');
     if (!(v.footZ === Infinity || num(v.footZ, -1e5, 1e5))) fail('gully mouth');
-    if (!Array.isArray(v.px) || !Array.isArray(v.py) || v.px.length !== v.py.length || v.px.length < 2 || v.px.length > 1000
+    if (!Array.isArray(v.px) || !Array.isArray(v.py) || v.px.length !== v.py.length || v.px.length < 2 || v.px.length > maxPoints
       || !inside(v.px, v.py)) fail('gully course');
+    for (let k = 1; k < v.px.length; k++) {
+      const dx = v.px[k] - v.px[k - 1], dy = v.py[k] - v.py[k - 1];
+      if (dx * dx + dy * dy > 45 * 45) fail('gully course');
+    }
   }
 }

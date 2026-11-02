@@ -3,13 +3,14 @@
 // layers stand as cliffs, soft ones as slopes, so walls step), and rockfall
 // that sheds rock from steep faces onto scree at their foot.
 import { VALLEY, SURFACE, FLOODPLAIN, HILLS } from '../config.js';
-import { effectiveDepth } from './floodplain.js';
+import { effectiveDepth, baseLevel } from './floodplain.js';
 import { sin, cos } from './dmath.js';
 
 // 1 in a hard rock layer, 0 in a soft one. Layers are flat beds that dip
-// with the valley, so a layer keeps its height above the valley floor.
-export function rockHardness(z, x, valleySlope) {
-  const t = (z - valleySlope * (VALLEY.length - x)) / HILLS.layerThickness + 0.3;
+// with the valley, measured from the original floodplain, so they move with
+// the ground when the valley slope or bank height changes.
+export function rockHardness(z, x, settings) {
+  const t = (z - baseLevel(x, settings)) / HILLS.layerThickness + 0.3;
   return t - Math.floor(t) < HILLS.hardFraction ? 1 : 0;
 }
 
@@ -29,10 +30,9 @@ export function relaxSlopes(grid, settings, dt = 1) {
   const creepMin = cell * HILLS.creepMinSlope;
   const creep = Math.min(0.2, (HILLS.creep * dt) / (passes * cell * cell));
   const fall = (HILLS.rockfall * dt) / passes;
-  const slope = settings.valleySlope;
   const D = effectiveDepth(settings);
   const bank = settings.bankHeight;
-  const rockLimit = (z, x) => (rockHardness(z, x, slope) ? hardRock : softRock);
+  const rockLimit = (z, x) => (rockHardness(z, x, settings) ? hardRock : softRock);
   // Dry cell `d` beside river cell `r`: no higher than one stable step above
   // the floodplain that river builds.
   const bluff = (d, r, x) => {

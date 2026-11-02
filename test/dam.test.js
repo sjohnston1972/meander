@@ -60,6 +60,22 @@ describe('landslide dams', () => {
     expect(e.rate[j - 10]).toBe(0);
   });
 
+  it('move with the ground when the valley slope changes', { timeout: LONG }, () => {
+    const e = new Engine({ ...defaults, quality: 'low', incisionRate: 10 });
+    run(e, 300);
+    e.makeDam(Math.floor(e.x.length * 0.6), 1.2);
+    const d = e.dams[0];
+    const above = d.crest - d.natural;
+    const g = e.grid;
+    const at = Math.min(g.cols - 1, Math.floor(d.x / g.cell)) + Math.min(g.rows - 1, Math.floor(d.y / g.cell)) * g.cols;
+    const ground = g.height[at];
+    const crest = d.crest;
+    e.applySettings({ valleySlope: 0.002 });
+    expect(e.dams.length).toBe(1);
+    expect(d.crest - crest).toBeCloseTo(g.height[at] - ground, 1); // the cell centre is a few metres from the dam
+    expect(d.crest - d.natural).toBeCloseTo(above, 1);
+  });
+
   it('wear away and are gone within a few hundred years', { timeout: LONG }, () => {
     HILLS.damFailChance = 0;
     const e = new Engine({ ...defaults, quality: 'low', incisionRate: 10 });

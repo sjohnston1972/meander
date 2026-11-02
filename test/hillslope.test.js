@@ -50,9 +50,17 @@ describe('valley walls', () => {
     expect(g.height[i]).toBeCloseTo(0.3, 5);
   });
 
+  it('rock layers move with the ground when the bank height or valley slope changes', () => {
+    const a = { valleySlope: 0.0005, bankHeight: 4 }, b = { valleySlope: 0.0005, bankHeight: 7 }, c = { valleySlope: 0.002, bankHeight: 4 };
+    for (let z = 0; z < 60; z += 0.7) {
+      expect(rockHardness(z + 3, 1000, b)).toBe(rockHardness(z, 1000, a));
+      expect(rockHardness(z + 0.0015 * 5000, 1000, c)).toBe(rockHardness(z, 1000, a));
+    }
+  });
+
   it('bedrock alternates hard and soft layers', () => {
     const seen = new Set();
-    for (let z = 0; z < 40; z += 0.5) seen.add(rockHardness(z, 1000, settings.valleySlope));
+    for (let z = 0; z < 40; z += 0.5) seen.add(rockHardness(z, 1000, settings));
     expect(seen.has(0)).toBe(true);
     expect(seen.has(1)).toBe(true);
     expect(HILLS.layerThickness).toBeGreaterThan(2);
