@@ -597,6 +597,7 @@ export class Engine {
       // In balance: everything that comes in goes straight through.
       this.loadExcess = 1;
       this.loadRatio = null;
+      sed.trapped = 0;
       sed.out = k * S[n - 2];
       if (this.lake) { this.lake.pending += sed.out * DT; sed.delta += sed.out * DT; } else sed.exported += sed.out * DT;
       sed.stored = 0;
@@ -1122,7 +1123,11 @@ export class Engine {
   triggerLandslide() {
     const g = this.grid;
     let best = null;
-    for (let k = 0; k < 400; k++) {
+    // First a fixed sparse look for any wall at all, so pressing the button
+    // on a river with none leaves the river's randomness untouched.
+    let any = false;
+    for (let i = 0; i < g.height.length && !any; i += 37) if (findSlideSite(g, i)) any = true;
+    for (let k = 0; k < 400 && any; k++) {
       const site = findSlideSite(g, this.rng.int(g.height.length));
       if (site && (!best || site.height > best.height)) best = site;
     }

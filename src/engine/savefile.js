@@ -6,7 +6,7 @@
 // { $ta: type, o: byte offset, n: length } into the data block. Infinity and
 // -Infinity (JSON cannot hold them) are written as { $num: 'inf' | '-inf' }.
 // Compression (gzip) is left to the caller, since it is async in browsers.
-import { QUALITY, VALLEY, HILLS, LAKE, WOOD, BEAVER, WORKS, CENTRELINE, defaults } from '../config.js';
+import { QUALITY, VALLEY, HILLS, LAKE, WOOD, BEAVER, WORKS, CENTRELINE, SEDIMENT, defaults } from '../config.js';
 import { tribWidth } from './tributary.js';
 import { sanitizeSettings } from '../settings.js';
 import { restoreStats } from './stats.js';
@@ -147,7 +147,8 @@ export function validateState(state) {
     || state.knickpoints.some((k) => !num(k.pos, 0, 1e7) || !num(k.drop, 0, 1000))) fail('knickpoints');
 
   // Sediment (absent from saves made before the sediment budget).
-  if (state.aggr !== undefined && (!finite(state.aggr) || state.aggr.length !== n0 || state.aggr.some((v) => v < -1000 || v > 1000))) fail('bed change');
+  // The bed never scours deeper than maxScour, and builds up at most to the top of a lake.
+  if (state.aggr !== undefined && (!finite(state.aggr) || state.aggr.length !== n0 || state.aggr.some((v) => v < -SEDIMENT.maxScour - 0.01 || v > 60))) fail('bed change');
   if (state.grain !== undefined && state.grain !== null
     && (!finite(state.grain) || state.grain.length !== n0 || state.grain.some((v) => v < 0 || v > 1))) fail('bed grain');
   if (state.wash !== undefined && state.wash !== null
@@ -160,7 +161,7 @@ export function validateState(state) {
     }
   }
   if (state.q !== undefined && !num(state.q, 0, s.meanDischarge * 100)) fail('flow');
-  if (state.loadExcess !== undefined && !num(state.loadExcess, 1, 100)) fail('load excess');
+  if (state.loadExcess !== undefined && !num(state.loadExcess, 1, SEDIMENT.maxLoadExcess)) fail('load excess');
   // Optional lists: absent in older saves, never longer than the engine makes them.
   const list = (k, max) => {
     if (state[k] === undefined) return [];
@@ -214,6 +215,8 @@ export function validateState(state) {
     if (!(d.cells instanceof Int32Array) || d.cells.length > n || d.cells.some((i) => i < 0 || i >= n)) fail('dam lake');
   }
   if (state.damCount !== undefined && (!Number.isInteger(state.damCount) || state.damCount < 0)) fail('dam count');
+  const damIds = list('dams', 100).map((d) => d.id);
+  if (new Set(damIds).size !== damIds.length) fail('dam ids'); // works and the renderer find dams by id
   for (const v of list('jams', WOOD.maxJams)) {
     if (!at(v) || !nums(v, ['height'], 0, 10) || !nums(v, ['id', 'age', 'life'], 0, 1e9) || (v.side !== 1 && v.side !== -1)) fail('log jam');
   }

@@ -92,6 +92,11 @@ describe('hostile saves', () => {
   it('rejects a flood of pending sediment', () => rejects((s) => { s.sedPending = Array.from({ length: 5000 }, () => ({ x: 1, y: 1, bed: 1, fines: 1, from: null })); }));
   it('rejects pending sediment counted in a tally that does not exist', () => rejects((s) => { s.sedPending = [{ x: 1, y: 1, bed: 1, fines: 1, from: '__proto__' }]; }));
   it('rejects an absurd load excess', () => rejects((s) => { s.loadExcess = 1e9; }));
+  it('rejects a load excess beyond what the engine allows', () => rejects((s) => { s.loadExcess = 50; }));
+  it('rejects two dams with the same id', () => rejects((s) => {
+    const d = { id: 1, x: 100, y: 100, crest: 5, natural: 4, age: 0, radius: 100, cells: new Int32Array(0) };
+    s.dams = [d, { ...d, x: 2000 }];
+  }));
   it('rejects a hanging loop that is not a list', () => rejects((s) => { s.hangingLoops = 'many'; }));
   it('rejects an oxbow with a strange drain flag', () => rejects((s) => {
     const e = new Engine({ ...defaults, quality: 'low' });

@@ -28,6 +28,18 @@ function wall(top) {
   return g;
 }
 
+describe('the Landslide button', () => {
+  it('on a river with no tall walls, says so and leaves the river exactly as it would have been', { timeout: 120000 }, () => {
+    const a = new Engine({ ...defaults, quality: 'low' });
+    const b = new Engine({ ...defaults, quality: 'low' });
+    run(a, 20); run(b, 20);
+    expect(b.triggerLandslide()).toBe(false);
+    expect(b.events.some((v) => v.type === 'noWalls')).toBe(true);
+    run(a, 20); run(b, 20);
+    expect(Array.from(b.x)).toEqual(Array.from(a.x));
+  });
+});
+
 describe('landslides', () => {
   it('cut a scar into the wall and spread the debris below it, keeping the volume', () => {
     const g = wall(40);

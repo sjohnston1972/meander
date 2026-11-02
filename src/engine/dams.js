@@ -7,6 +7,8 @@
 // cells (river and oxbow cells are left to their own water). With `clip`
 // (beaver ponds, held in by dams the beavers extend across the low ground)
 // the pond simply stops `radius` from the dam.
+let scratch = new Int32Array(0);
+
 export function fillPond(grid, seed, crest, damX, damY, radius, clip = false) {
   const { cols, rows, cell, height, channel, chanLevel } = grid;
   const n = height.length;
@@ -14,7 +16,8 @@ export function fillPond(grid, seed, crest, damX, damY, radius, clip = false) {
   if (height[seed] >= crest || below(seed)) return new Int32Array(0);
   const id = ++grid.stampId;
   const stamp = grid.stamp;
-  const queue = new Int32Array(n);
+  if (scratch.length < n) scratch = new Int32Array(n); // one flood-fill queue, reused
+  const queue = scratch;
   const out = [];
   let head = 0, tail = 0;
   queue[tail++] = seed;

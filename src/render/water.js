@@ -369,7 +369,9 @@ export function createWater() {
         ponds.set(p.id, pond);
       }
       const n = p.cells.length;
-      const key = `${n}:${p.cells[0]}:${p.cells[n >> 1]}:${p.cells[n - 1]}`;
+      let sum = 0;
+      for (let k = 0; k < n; k++) sum = (sum * 31 + p.cells[k]) | 0; // a checksum of every flooded cell
+      const key = `${n}:${sum}`;
       if (pond.key !== key) {
         pond.mesh.geometry.dispose();
         pond.mesh.geometry = pondGeometry(p.cells, snapshot.grid.cols, snapshot.grid.cell);
