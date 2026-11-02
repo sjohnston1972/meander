@@ -8,6 +8,7 @@
 // Compression (gzip) is left to the caller, since it is async in browsers.
 import { QUALITY, VALLEY, HILLS, LAKE, defaults } from '../config.js';
 import { sanitizeSettings } from '../settings.js';
+import { restoreStats } from './stats.js';
 
 export const SAVE_VERSION = 1;
 const MAGIC = 'MEANDER1';
@@ -126,6 +127,7 @@ export function validateState(state) {
   if (state.braid !== undefined && !num(state.braid, 0, 1)) fail('braid');
   if (state.braidTime !== undefined && !num(state.braidTime, 0, 1e9)) fail('braid time');
   if (state.climatePhase !== undefined && !['', 'wet', 'dry'].includes(state.climatePhase)) fail('climate');
+  if (state.stats !== undefined && !restoreStats(state.stats)) fail('history');
   if (!Array.isArray(state.knickpoints) || state.knickpoints.length > 1000
     || state.knickpoints.some((k) => !num(k.pos, 0, 1e7) || !num(k.drop, 0, 1000))) fail('knickpoints');
 

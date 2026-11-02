@@ -18,6 +18,9 @@ const CASES = [
   { name: 'gorge: landslides, dams, gullies', settings: { seed: 5, incisionRate: 20, alluviumDepth: 4 }, ticks: 12000, slide: 11000 },
   { name: 'overloaded with sediment', settings: { seed: 6, sedimentSupply: 3 }, ticks: 2400 },
   { name: 'starved of sediment', settings: { seed: 8, sedimentSupply: 0.2 }, ticks: 2400 },
+  { name: 'lake and delta', settings: { seed: 9, valleyEnd: 'lake', sedimentSupply: 2 }, ticks: 2400 },
+  { name: 'tributary', settings: { seed: 10, tributary: 0.4 }, ticks: 2400 },
+  { name: 'climate swings, auto pattern', settings: { seed: 11, climateSwing: 1, pattern: 'auto', valleySlope: 0.0028 }, ticks: 4000 },
 ];
 
 function runCase(EngineClass, base, fp, c) {

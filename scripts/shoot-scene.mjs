@@ -5,7 +5,7 @@
 // types given). Prints update times and the features found. Exits non-zero
 // on any console error.
 //   node scripts/shoot-scene.mjs <label> "<hash settings>" [years] [feature,types]
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { chromium } from 'playwright';
 
@@ -27,7 +27,7 @@ mkdirSync('docs/looks', { recursive: true });
 const server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { shell: true, stdio: 'ignore' });
 let exitCode = 0;
 try {
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < 240; i++) {
     try { if ((await fetch(`http://localhost:${PORT}/`)).ok) break; } catch {}
     await new Promise((r) => setTimeout(r, 250));
   }
@@ -106,7 +106,7 @@ try {
   await browser.close();
 } finally {
   // On Windows the shell's child (the preview server) outlives a plain kill.
-  if (process.platform === 'win32') spawn('taskkill', ['/F', '/T', '/PID', String(server.pid)], { stdio: 'ignore' });
+  if (process.platform === 'win32') spawnSync('taskkill', ['/F', '/T', '/PID', String(server.pid)], { stdio: 'ignore' });
   else server.kill();
 }
 process.exit(exitCode);

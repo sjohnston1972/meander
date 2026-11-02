@@ -12,6 +12,7 @@ import { createLabels } from './render/labels.js';
 import { createSim } from './sim.js';
 import { createControls } from './ui/controls.js';
 import { createCrossSection } from './ui/crosssection.js';
+import { createGraphs } from './ui/graphs.js';
 import { toast } from './ui/toast.js';
 import { decodeSettings, copyLink, saveScreenshot } from './ui/share.js';
 import { packRiver, unpackRiver, download, pickFile } from './ui/files.js';
@@ -57,6 +58,8 @@ async function start() {
   const effects = createEffects();
   const labels = createLabels(document.getElementById('labels'), document.getElementById('card'));
   const section = createCrossSection();
+  const graphs = createGraphs();
+  graphs.show(settings.showGraphs);
   view.scene.add(terrain.group, water.group, trails.group, particles.points, vegetation.group, effects.group);
 
   let snapshot = null;
@@ -119,6 +122,7 @@ async function start() {
     trails.update(snap, settings.exaggeration, settings.showTrails, settings.showThalweg && !braided(snap));
     particles.setSnapshot(snap, quality().particles);
     section.refresh(snap);
+    graphs.update(snap);
     hudYear.textContent = `Year ${Math.floor(snap.year).toLocaleString()}${snap.climate?.phase ? ` · ${snap.climate.phase} period` : ''}`;
     showSedimentHud(snap);
     controls.setYear(snap.year, snap.flood);
@@ -151,6 +155,8 @@ async function start() {
     view.setFog(settings.fog);
     sim.setSpeed(settings.yearsPerSecond);
     water.setShowSediment(settings.showSediment);
+    graphs.reset();
+    graphs.show(settings.showGraphs);
     view.controls.enabled = true;
     canvas.style.cursor = '';
     snapshot = null; // rebuild everything from the next snapshot
@@ -171,6 +177,7 @@ async function start() {
     controls.showResetNote('');
     snapshot = null;
     view.setQuality(settings.quality);
+    graphs.reset();
     sim.reset(settings);
     section.hide();
     toast('Reset');
@@ -200,6 +207,7 @@ async function start() {
       if (key === 'timeOfDay') view.setTimeOfDay(settings.timeOfDay);
       else if (key === 'fog') view.setFog(settings.fog);
       else if (key === 'paintRock') { view.controls.enabled = !settings.paintRock; canvas.style.cursor = settings.paintRock ? 'crosshair' : ''; }
+      else if (key === 'showGraphs') graphs.show(settings.showGraphs);
       else if (snapshot) {
         water.setShowSediment(settings.showSediment);
         showSedimentHud(snapshot);

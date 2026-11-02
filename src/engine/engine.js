@@ -24,6 +24,7 @@ import {
   newTributary, migrateTributary, joinMain, tributaryLevels, carveTributary, growFan, tribWidth, tribDepth,
 } from './tributary.js';
 import { wetness, climateSettings, climatePhase } from './climate.js';
+import { newStats, accumulate, maybeRecord, saveStats, restoreStats, statsForSnapshot } from './stats.js';
 import { exp, pow, hypot, sin, cos } from './dmath.js';
 
 export class Engine {
@@ -79,6 +80,8 @@ export class Engine {
     this.wet = 0;               // how wet the climate is now, -1 to 1 (climate swings)
     this.climatePhase = '';     // 'wet', 'dry' or ''
     this.es = this.settings;    // the settings the river feels now (the climate moves flow, floods and sediment)
+    this.stats = newStats();    // history for the graphs
+    this.sentStatsVersion = -1;
     this.lake = null;           // the lake at the valley's end and its delta (valleyEnd: 'lake')
     this.mouth = x.length - 1;  // the river's last point above open water
     if (this.settings.valleyEnd === 'lake') this.lake = Engine.newLake(makeLake(this.grid, this.settings, this.depth));
@@ -142,7 +145,7 @@ export class Engine {
       flood: this.flood, floodRemaining: this.floodRemaining, floodPending: this.floodPending,
       discharge: this.discharge, yearDischargeAt: this.yearDischargeAt,
       incision: this.incision, knickpoints: this.knickpoints.map((k) => ({ ...k })),
-      braid: this.braid, braidTime: this.braidTime, climatePhase: this.climatePhase,
+      braid: this.braid, braidTime: this.braidTime, climatePhase: this.climatePhase, stats: saveStats(this.stats),
       slides: this.slides.map((v) => ({ ...v })), slideMarks: this.slideMarks.map((v) => ({ ...v })),
       dams: this.dams.map((d) => ({ ...d, cells: d.cells.slice() })), damCount: this.damCount,
       gullies: this.gullies.map((v) => ({ ...v, px: v.px.slice(), py: v.py.slice() })),
@@ -197,6 +200,8 @@ export class Engine {
     this.braidTime = st.braidTime ?? 0;
     this.tribNoise = null; this.mouthNoise = null; this.climateNoise = null;
     this.climatePhase = st.climatePhase || '';
+    this.stats = restoreStats(st.stats) || newStats();
+    this.sentStatsVersion = -1;
     this.braidNoise = createNoise2D(this.settings.seed * 48271 + 5);
     this.threads = null;
     this.slides = (st.slides || []).map((v) => ({ x: v.x, y: v.y, dirx: v.dirx, diry: v.diry, width: v.width, age: v.age }));
@@ -801,7 +806,9 @@ export class Engine {
       if (this.history.length > keep) this.history.splice(0, this.history.length - keep);
     }
 
+    accumulate(this.stats, this.q, DT);
     this.year += DT;
+    maybeRecord(this.stats, this);
   }
 
   stamp() {
@@ -1541,6 +1548,7 @@ export class Engine {
       features: this.features,
       braid: this.threads ? this.braidSnapshot() : null,
       climate: this.settings.climateSwing > 0 ? { wet: this.wet, phase: this.climatePhase } : null,
+      stats: this.stats.version !== this.sentStatsVersion ? statsForSnapshot(this.stats) : null,
       sediment: {
         ...this.sediment,
         bed: Float32Array.from(this.aggr),
@@ -1572,6 +1580,7 @@ export class Engine {
       },
     };
     this.sentBedrockVersion = g.bedrockVersion;
+    this.sentStatsVersion = this.stats.version;
     if (this.lake) {
       this.sentLakeVersion = this.lake.version;
       snap.sediment.lake = true;
