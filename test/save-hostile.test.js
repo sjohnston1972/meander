@@ -53,6 +53,14 @@ describe('hostile saves', () => {
     s.oxbows[0].draining = true;
     delete s.oxbows[0].drainRate;
   }));
+  it('rejects a bed-change array of the wrong length', () => rejects((s) => { s.aggr = new Float64Array(3); }));
+  it('rejects an absurd bed change', () => rejects((s) => { s.aggr = s.aggr.slice(); s.aggr[5] = 1e9; }));
+  it('rejects a muddy-water array of the wrong length', () => rejects((s) => { s.wash = new Float64Array(3); }));
+  it('rejects negative fines in the water', () => rejects((s) => { s.wash = new Float64Array(s.x.length).fill(-1); }));
+  it('rejects sediment tallies that are not numbers', () => rejects((s) => { s.sediment = { ...s.sediment, exported: 'lots' }; }));
+  it('rejects a flood of pending sediment', () => rejects((s) => { s.sedPending = Array.from({ length: 5000 }, () => ({ x: 1, y: 1, bed: 1, fines: 1, from: null })); }));
+  it('rejects pending sediment counted in a tally that does not exist', () => rejects((s) => { s.sedPending = [{ x: 1, y: 1, bed: 1, fines: 1, from: '__proto__' }]; }));
+  it('rejects an absurd load excess', () => rejects((s) => { s.loadExcess = 1e9; }));
   it('rejects a hanging loop that is not a list', () => rejects((s) => { s.hangingLoops = 'many'; }));
   it('rejects an oxbow with a strange drain flag', () => rejects((s) => {
     const e = new Engine({ ...defaults, quality: 'low' });

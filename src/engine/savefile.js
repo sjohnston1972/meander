@@ -128,12 +128,32 @@ export function validateState(state) {
   if (!Array.isArray(state.knickpoints) || state.knickpoints.length > 1000
     || state.knickpoints.some((k) => !num(k.pos, 0, 1e7) || !num(k.drop, 0, 1000))) fail('knickpoints');
 
-  // Valley walls (absent from saves made before landslides and gullies).
+  // Sediment (absent from saves made before the sediment budget).
+  if (state.aggr !== undefined && (!finite(state.aggr) || state.aggr.length !== n0 || state.aggr.some((v) => v < -1000 || v > 1000))) fail('bed change');
+  if (state.wash !== undefined && state.wash !== null
+    && (!finite(state.wash) || state.wash.length !== n0 || state.wash.some((v) => v < 0 || v > 1e12))) fail('muddy water');
+  if (state.sediment !== undefined) {
+    const sd = state.sediment;
+    if (!sd || typeof sd !== 'object') fail('sediment');
+    for (const k of ['out', 'exported', 'trapped', 'stored', 'inflow', 'fromWalls', 'fromSlides', 'fromGullies']) {
+      if (sd[k] !== undefined && !num(sd[k], -1e15, 1e15)) fail(`sediment ${k}`);
+    }
+  }
+  if (state.q !== undefined && !num(state.q, 0, s.meanDischarge * 100)) fail('flow');
+  if (state.loadExcess !== undefined && !num(state.loadExcess, 1, 100)) fail('load excess');
+  // Optional lists: absent in older saves, never longer than the engine makes them.
   const list = (k, max) => {
     if (state[k] === undefined) return [];
     if (!Array.isArray(state[k]) || state[k].length > max) fail(k);
     return state[k];
   };
+  const tallies = [null, 'fromSlides', 'fromGullies'];
+  for (const p of list('sedPending', 1000)) {
+    if (!num(p?.x, -1, VALLEY.length + 1) || !num(p?.y, -1, VALLEY.width + 1) || !num(p.bed, 0, 1e12) || !num(p.fines, 0, 1e12)) fail('pending sediment');
+    if (!tallies.includes(p.from ?? null)) fail('pending sediment');
+  }
+
+  // Valley walls (absent from saves made before landslides and gullies).
   const nums = (v, keys, lo, hi) => keys.every((k) => num(v?.[k], lo, hi));
   const at = (v) => num(v?.x, -1, VALLEY.length + 1) && num(v?.y, -1, VALLEY.width + 1);
   for (const v of list('slides', 1000)) if (!at(v) || !nums(v, ['dirx', 'diry'], -1.01, 1.01) || !nums(v, ['width', 'age'], 0, 1e5)) fail('landslide');

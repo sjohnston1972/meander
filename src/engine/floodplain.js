@@ -2,7 +2,7 @@
 // type, an erodibility multiplier and a vegetation value. The channel is carved
 // into it every step; land the channel leaves behind becomes point bar; floods
 // build levees; low ground slowly rises back to floodplain level.
-import { VALLEY, QUALITY, SURFACE, FLOODPLAIN, THALWEG, CENTRELINE, BRAID, HILLS } from '../config.js';
+import { VALLEY, QUALITY, SURFACE, FLOODPLAIN, THALWEG, CENTRELINE, BRAID, HILLS, SEDIMENT } from '../config.js';
 import { createNoise2D } from './random.js';
 import { sin, hypot } from './dmath.js';
 
@@ -37,6 +37,7 @@ export function createGrid(settings, rng) {
     veg: new Float32Array(n),        // vegetation 0..1
     channel: new Uint8Array(n),      // 1 = river this step, 2 = oxbow lake, 3 = river last step (transient)
     lakeLost: new Uint8Array(n),     // 1 = an oxbow cell the river has since taken back
+    chanSeg: new Int32Array(n),      // centreline segment that carved each river cell this step
     chanList: [],                    // indices of river cells this step
     chanLevel: new Float32Array(n),  // water level last time the cell was channel
     bedrock: new Float32Array(n),    // top of the bedrock under the alluvium, metres
@@ -199,7 +200,13 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
   const innerRamp = FLOODPLAIN.innerRampWidths * W;
   const cutBand = FLOODPLAIN.cutBankBandWidths * W;
   const leveeW = FLOODPLAIN.leveeWidthWidths * W;
-  const reach = halfW + Math.max(innerRamp, flood > 0 ? leveeW : 0, cutBand);
+  // A bed built up by sediment lifts the floodplain beside it (river.aggr,
+  // metres per point, over the reference levels river.ref); muddy water
+  // (river.wash, a factor per point) builds levees faster.
+  const { aggr, ref, wash } = river;
+  const aggrading = !!aggr && river.aggrading;
+  const plainBand = aggrading ? halfW + SEDIMENT.floodplainWidths * W : 0;
+  const reach = halfW + Math.max(innerRamp, flood > 0 ? leveeW : 0, cutBand, plainBand - halfW);
   const { height, base, surface, veg, channel, chanLevel, lakeLost, bedrock } = grid;
 
   // Clear last step's river cells; remember them to detect abandoned ground.
@@ -213,6 +220,14 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
 
   forCellsNear(grid, x, y, reach, (i, u, t, s) => {
     const lvl = level[s] + (level[s + 1] - level[s]) * t;
+    if (aggrading) {
+      const z = aggr[s] + (aggr[s + 1] - aggr[s]) * t;
+      if (z > 0.05) {
+        const plain = ref[s] + (ref[s + 1] - ref[s]) * t + z - D + settings.bankHeight;
+        if (plain > base[i]) base[i] = plain;
+      }
+      if (Math.abs(u) > halfW + Math.max(innerRamp, flood > 0 ? leveeW : 0, cutBand)) return;
+    }
     const cv = c[s] + (c[s + 1] - c[s]) * t;
     const r = rate[s] + (rate[s + 1] - rate[s]) * t;
     const bend = Math.min(1, Math.abs(cv) * W * THALWEG.curvatureScale);
@@ -229,6 +244,7 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
       if (channel[i] !== 3 || h < height[i] || Math.abs(height[i] - h) > 0.5) height[i] = h;
       if (river.cutting && bedrock[i] > height[i]) { bedrock[i] = height[i]; grid.bedrockDirty = true; } // a river cutting down planes the rock (a strath)
       channel[i] = 1;
+      grid.chanSeg[i] = s;
       list.push(i);
       chanLevel[i] = lvl;
       // The floodplain this channel builds sits a bank height above its own water.
@@ -253,7 +269,8 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
       veg[i] *= 0.5;
     }
     if (leveeGain > 0 && f <= leveeW && height[i] < base[i] + FLOODPLAIN.leveeMaxHeight) {
-      height[i] += leveeGain * (1 - f / leveeW);
+      const muddy = wash ? Math.min(SEDIMENT.maxWash, wash[s] + (wash[s + 1] - wash[s]) * t) : 1;
+      height[i] += leveeGain * muddy * (1 - f / leveeW);
     }
   });
 
@@ -288,8 +305,9 @@ export function stampBraided(grid, river, braid, settings, flood) {
     grid.braidEdge = new Float32Array(n).fill(Infinity); // metres outside the nearest thread (negative inside)
     grid.braidLvl = new Float32Array(n);                 // water level of that thread there
     grid.braidDeep = new Float32Array(n);                // water depth there, if inside
+    grid.braidSeg = new Int32Array(n);                   // centreline segment of that thread point
   }
-  const edgeOf = grid.braidEdge, lvlOf = grid.braidLvl, deepOf = grid.braidDeep;
+  const edgeOf = grid.braidEdge, lvlOf = grid.braidLvl, deepOf = grid.braidDeep, segOf = grid.braidSeg;
   const touched = [];
   const prevList = grid.chanList;
   for (const i of prevList) if (channel[i] === 1) channel[i] = 3;
@@ -309,6 +327,7 @@ export function stampBraided(grid, river, braid, settings, flood) {
       if (edgeOf[i] === Infinity) touched.push(i);
       edgeOf[i] = e;
       lvlOf[i] = level[s] + (level[s + 1] - level[s]) * t;
+      segOf[i] = s;
       const q = d / hw;
       deepOf[i] = Math.max(FLOODPLAIN.edgeDepth, FLOODPLAIN.edgeDepth + (td * size - FLOODPLAIN.edgeDepth) * (1 - q * q));
     });
@@ -347,6 +366,7 @@ export function stampBraided(grid, river, braid, settings, flood) {
       height[i] = lvl - deepOf[i];
       if (river.cutting && grid.bedrock[i] > height[i]) { grid.bedrock[i] = height[i]; grid.bedrockDirty = true; }
       channel[i] = 1;
+      grid.chanSeg[i] = segOf[i];
       list.push(i);
       chanLevel[i] = lvl;
       const localBase = lvl - D + settings.bankHeight;
@@ -400,11 +420,12 @@ export function retireOxbow(grid, oxbow) {
 
 // Vegetation growth, aggradation of low ground, overbank silt, surface ageing.
 // Runs over the whole grid; call every few steps with the accumulated dt.
-export function growLand(grid, settings, dt, flood = 0) {
+// `muddy` scales overbank silt by how much fine material the river carries.
+export function growLand(grid, settings, dt, flood = 0, muddy = 1) {
   const { height, base, surface, veg, channel } = grid;
   const grow = (dt * settings.vegGrowth) / FLOODPLAIN.vegFullYears;
   const aggrade = FLOODPLAIN.aggradeRate * settings.sedimentSupply * dt;
-  const silt = FLOODPLAIN.overbankRate * settings.sedimentSupply * flood * dt;
+  const silt = FLOODPLAIN.overbankRate * settings.sedimentSupply * flood * dt * muddy;
   for (let i = 0; i < height.length; i++) {
     if (channel[i]) continue;
     const s = surface[i];

@@ -20,8 +20,9 @@ export function rockHardness(z, x, settings) {
 // and the river carries the debris away. Creep and rockfall act over `dt`
 // years. The engine runs this only while the river is cutting down, so
 // ordinary banks (and every non-incising river) stay as the channel stamp
-// made them.
-export function relaxSlopes(grid, settings, dt = 1) {
+// made them. What slumps into the river is added to `sink` (m^3, indexed by
+// the centreline segment that carved the river cell), when given.
+export function relaxSlopes(grid, settings, dt = 1, sink = null) {
   const { cols, rows, cell, height, channel, chanLevel, bedrock, surface, veg } = grid;
   const passes = FLOODPLAIN.scarpPasses;
   const soil = cell * FLOODPLAIN.scarpSlope;
@@ -35,10 +36,15 @@ export function relaxSlopes(grid, settings, dt = 1) {
   const rockLimit = (z, x) => (rockHardness(z, x, settings) ? hardRock : softRock);
   // Dry cell `d` beside river cell `r`: no higher than one stable step above
   // the floodplain that river builds.
+  const area = cell * cell;
+  const { chanSeg } = grid;
   const bluff = (d, r, x) => {
     const plain = chanLevel[r] - D + bank;
     const cap = plain + (chanLevel[r] - D < bedrock[d] ? rockLimit(plain, x) : soil);
-    if (height[d] > cap) height[d] = cap;
+    if (height[d] > cap) {
+      if (sink && chanSeg[r] < sink.length) sink[chanSeg[r]] += (height[d] - cap) * area;
+      height[d] = cap;
+    }
   };
   const relax = (i, j, x) => {
     const ci = channel[i], cj = channel[j];
@@ -238,14 +244,14 @@ export function growGully(grid, settings, gully, dt, flood) {
     }
     s += segLen;
   }
-  if (removed <= 0) return;
+  if (removed <= 0) return null;
   // The fan: a low cone spreading out from the mouth, away from the wall.
   const R = Math.max(2 * cell, HILLS.fanRadius * gully.length);
   const keep = removed * HILLS.fanFraction;
   const x0 = Math.max(0, Math.floor((gully.x - R) / cell)), x1 = Math.min(cols - 1, Math.floor((gully.x + R) / cell));
   const y0 = Math.max(0, Math.floor((gully.y - R) / cell)), y1 = Math.min(rows - 1, Math.floor((gully.y + R) / cell));
   const fan = [];
-  let weights = 0;
+  let weights = 0, wet = 0;
   for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
     const ox = (cx + 0.5) * cell - gully.x, oy = (cy + 0.5) * cell - gully.y;
     if (ox * gully.dirx + oy * gully.diry >= 0) continue; // only out from the wall
@@ -255,12 +261,16 @@ export function growGully(grid, settings, gully, dt, flood) {
     weights += w;
     const i = cy * cols + cx;
     if (!channel[i]) fan.push(i, w); // fan on the river is the river's to carry off
+    else if (channel[i] === 1) wet += w;
   }
   for (let p = 0; p < fan.length; p += 2) {
     const i = fan[p], add = (keep * fan[p + 1]) / weights;
     height[i] += add;
     if (add > 0.01 && surface[i] !== SURFACE.WATER) { surface[i] = SURFACE.GRAVEL; veg[i] *= 0.9; }
   }
+  // Washed out to the river: the part of the fan that fell on it, and the fines.
+  const area = cell * cell;
+  return { bed: (keep * wet * area) / weights, fines: removed * (1 - HILLS.fanFraction) * area };
 }
 
 function cellAt(grid, x, y) {

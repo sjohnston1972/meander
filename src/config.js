@@ -242,6 +242,12 @@ export const SEDIMENT = {
   supplyCoupling: 0.25,    // inflow from upstream = (1 + this x (sediment supply - 1)) x what the river can carry
   maxAggrade: 4,           // metres the bed can build up above its reference level
   maxScour: 6,             // metres it can be scoured below it (less where bedrock is nearer)
+  wallBedFraction: 0.5,    // fraction of terrace and gorge wall material that is sand and gravel; the rest is fines
+  slideBedFraction: 0.7,   // ... of landslide debris
+  washRef: 20000,          // m^3/yr of fines at mean flow that make the water noticeably cloudier (and levees grow twice as fast)
+  floodplainWidths: 3,     // an aggrading bed lifts the floodplain this many channel widths either side of the river
+  maxWash: 4,              // levees and silt grow at most this many times faster in muddy water
+  maxLoadExcess: 3,        // Auto braiding counts a load at most this many times what comes in from upstream
 };
 
 // --- Braided rivers ---

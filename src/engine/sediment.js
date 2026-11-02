@@ -10,8 +10,9 @@
 //
 // The first point takes `inflow` from upstream; the last holds the base level
 // (z = 0). Nothing flows on out of a lake point (`pool`), so sediment the
-// river brings into a lake stays at its head. Afterwards z is kept within [zMin, zMax] (bedrock
-// below, a cap above); what that removes or adds is returned as `clipped`.
+// river brings into a lake stays at its head. Afterwards z is kept within
+// [zMin, zMax]: what a full bed cannot hold passes on downstream; what
+// bedrock stops being scoured is returned as `clipped` (m^3).
 //
 // `r` holds z, k, S (per face, n − 1), L (m^3/yr per point), pool, zMin,
 // zMax, inflow (m^3/yr), dt, width, ds, porosity. z is updated in place.
@@ -51,13 +52,22 @@ export function solveBed(r) {
   }
   z[n - 1] = d[n - 1];
   for (let i = n - 2; i >= 0; i--) z[i] = d[i] - c[i] * z[i + 1];
-  let clipped = 0;
-  for (let i = 0; i < n; i++) {
-    const v = z[i] < zMin[i] ? zMin[i] : z[i] > zMax[i] ? zMax[i] : z[i];
-    clipped += v - z[i];
-    z[i] = v;
-  }
+  // A bed already built up to its cap cannot take more: the rest passes on
+  // downstream, and out of the valley if it gets that far. Scour stops at
+  // bedrock (the river simply carries less).
   const f = n - 2;
-  const out = !pool[f] ? k * S[f] - cond * (z[f + 1] - z[f]) : 0;
-  return { out, clipped: clipped * (1 - porosity) * width * ds };
+  const flux = !pool[f] ? k * S[f] - cond * (z[f + 1] - z[f]) : 0;
+  let clipped = 0, passed = 0;
+  for (let i = 0; i < n - 1; i++) {
+    if (z[i] > zMax[i]) {
+      const extra = z[i] - zMax[i];
+      z[i] = zMax[i];
+      if (i < n - 2) z[i + 1] += extra; else passed += extra;
+    } else if (z[i] < zMin[i]) {
+      clipped += zMin[i] - z[i];
+      z[i] = zMin[i];
+    }
+  }
+  const cell = (1 - porosity) * width * ds;
+  return { out: flux + (passed * cell) / dt, clipped: clipped * cell };
 }

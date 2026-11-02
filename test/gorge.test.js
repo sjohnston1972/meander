@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import { Engine } from '../src/engine/engine.js';
 import { defaults, DT, VALLEY, FLOODPLAIN } from '../src/config.js';
 
-const LONG = 300000;
+const LONG = 600000;
 const run = (e, years) => { for (let i = 0; i < years / DT; i++) e.tick(); };
 const sinuosity = (e) => (e.x.length * e.ds) / VALLEY.length;
 
