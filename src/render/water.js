@@ -1,4 +1,6 @@
-// River ribbon, oxbow lakes, landslide lakes and the flood sheet. Only draws what the snapshot says.
+// River ribbon, oxbow lakes, landslide lakes, the lake at the valley's end,
+// side channels (distributaries, the tributary) and the flood sheet. Only
+// draws what the snapshot says.
 import * as THREE from 'three';
 import { VALLEY, RENDER, FLOODPLAIN } from '../config.js';
 
@@ -194,6 +196,21 @@ export function createWater() {
     color: RENDER.pondColour, transparent: true, opacity: 0.8, roughness: 0.1, metalness: 0.05,
     normalMap, normalScale: new THREE.Vector2(0.07, 0.07), depthWrite: false,
   });
+  // The lake at the valley's end: one sheet over every cell it started on;
+  // the delta, built up above the water, hides the parts it has filled.
+  const endLakeMaterial = pondMaterial.clone();
+  endLakeMaterial.color = new THREE.Color(RENDER.endLakeColour);
+  endLakeMaterial.normalScale = new THREE.Vector2(0.12, 0.12);
+  const endLake = new THREE.Mesh(new THREE.BufferGeometry(), endLakeMaterial);
+  endLake.renderOrder = 1;
+  endLake.frustumCulled = false;
+  endLake.visible = false;
+  let endLakeVersion = -1;
+  // Side channels: distributaries on the delta and the tributary.
+  const sideMaterial = riverMaterial.clone();
+  const side = makeRibbon(sideMaterial, MAX_POINTS);
+  side.renderOrder = 2;
+  side.visible = false;
 
   // A fixed ribbon for one oxbow loop, with its own material for tinting.
   function buildLake(o, exaggeration) {
@@ -229,7 +246,7 @@ export function createWater() {
   for (let i = 0; i < fuv.length; i += 2) { fuv[i] *= 60; fuv[i + 1] *= 30; }
 
   const group = new THREE.Group();
-  group.add(river, threads, flood);
+  group.add(river, threads, flood, endLake, side);
 
   // Per-point cross-section for the cross-section panel and picking.
   let lastSnapshot = null;
@@ -361,6 +378,41 @@ export function createWater() {
       pond.mesh.position.y = p.level * exaggeration + 0.05 + floodLift * 0.5;
     }
     pondMaterial.opacity = opacity * 0.95;
+
+    // The lake at the valley's end (its cells arrive once per river).
+    const lake = snapshot.lake;
+    if (lake) {
+      if (lake.cells && lake.version !== endLakeVersion) {
+        endLake.geometry.dispose();
+        endLake.geometry = pondGeometry(lake.cells, snapshot.grid.cols, snapshot.grid.cell);
+        endLakeVersion = lake.version;
+      }
+      endLake.position.y = lake.level * exaggeration + 0.04 + floodLift * 0.5;
+      endLake.visible = endLakeVersion >= 0;
+      endLakeMaterial.opacity = opacity * 0.8;
+    } else if (endLakeVersion >= 0) {
+      endLake.geometry.dispose();
+      endLake.geometry = new THREE.BufferGeometry();
+      endLake.visible = false;
+      endLakeVersion = -1;
+    }
+
+    // Side channels: light, shallow water.
+    const channels = snapshot.channels || [];
+    if (channels.length) {
+      const sideColour = (i, u01) => {
+        const s = u01 * 2 - 1;
+        tmp.copy(riffleColour).lerp(poolColour, 0.35 * (1 - s * s));
+        if (u01 === 0 || u01 === 1) tmp.lerp(rimColour, 0.4);
+        tmp.lerp(floodColour, f * 0.85);
+      };
+      let start = 0;
+      for (const ch of channels) start = writeRibbon(side, start, ch.x, ch.y, ch.level, ch.width, exaggeration, sideColour, 0, 0.06 + floodLift);
+      finishRibbon(side, start, Math.max(0, start - 1), channels.map((ch) => ch.x.length).join(','));
+      sideMaterial.opacity = opacity;
+    } else {
+      side.visible = false;
+    }
     for (const [id, pond] of ponds) {
       if (seenPonds.has(id)) continue;
       group.remove(pond.mesh);

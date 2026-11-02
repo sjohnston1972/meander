@@ -76,7 +76,8 @@ async function start() {
   function showSedimentHud(snap) {
     const s = snap?.sediment;
     if (!settings.showSediment || !s) { hudSed.textContent = ''; return; }
-    const lines = [`Sediment leaving the valley: ${round(s.out)} m³ a year`];
+    const lines = [s.lake ? `Building the delta: ${round(s.out)} m³ a year` : `Sediment leaving the valley: ${round(s.out)} m³ a year`];
+    if (s.lake && s.deltaVolume > 500) lines.push(`Delta so far: ${round(s.deltaVolume)} m³`);
     if (Math.abs(s.stored) > 500) lines.push(`${s.stored > 0 ? 'Built up in the bed' : 'Scoured from the bed'}: ${round(Math.abs(s.stored))} m³`);
     if (s.trapped > 500) lines.push(`Trapped in landslide lakes: ${round(s.trapped)} m³`);
     hudSed.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
@@ -130,6 +131,7 @@ async function start() {
       else if (ev.type === 'landslide') { toast(`Landslide in year ${yr}`); effects.spawn('collapse', ev.x, ev.y, groundHeight(ev.x, ev.y)); }
       else if (ev.type === 'landslidedam') toast(`A landslide has dammed the river in year ${yr}`);
       else if (ev.type === 'outburst') toast(`Landslide dam burst in year ${yr}: flood!`);
+      else if (ev.type === 'avulsion') toast(`The delta's distributaries have switched course in year ${yr}`);
       else if (ev.type === 'noWalls') toast('No valley wall is tall enough to give way yet. Turn up incision and let the river cut down');
     }
   });

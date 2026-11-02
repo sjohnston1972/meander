@@ -9,6 +9,21 @@ import { sanitizeSettings, startQuality } from '../src/settings.js';
 const base = () => { const e = new Engine({ ...defaults, quality: 'low' }); for (let i = 0; i < 40; i++) e.tick(); return e.serialize(); };
 const rejects = (edit) => { const st = base(); edit(st); expect(() => decodeSave(encodeSave(st))).toThrow(); };
 
+const lakeBase = () => { const e = new Engine({ ...defaults, quality: 'low', valleyEnd: 'lake' }); for (let i = 0; i < 8; i++) e.tick(); return e.serialize(); };
+const rejectsLake = (edit) => { const st = lakeBase(); edit(st); expect(() => decodeSave(encodeSave(st))).toThrow(); };
+
+describe('hostile saves: the valley-end lake', () => {
+  it('opens a good one', () => { expect(() => decodeSave(encodeSave(lakeBase()))).not.toThrow(); });
+  it('rejects lake cells off the grid', () => rejectsLake((s) => { s.lake.cells = Int32Array.of(-1); }));
+  it('rejects distributary cells off the grid', () => rejectsLake((s) => { s.lake.distCells = Int32Array.of(1e9); }));
+  it('rejects a lake setting without a lake', () => rejectsLake((s) => { s.lake = null; }));
+  it('rejects a lake in an open valley', () => rejectsLake((s) => { s.settings.valleyEnd = 'open'; }));
+  it('rejects more distributaries than the engine makes', () => rejectsLake((s) => { s.lake.dists = Array.from({ length: 50 }, () => ({ angle: 0.3 })); }));
+  it('rejects a distributary angle that is not a number', () => rejectsLake((s) => { s.lake.dists = [{ angle: 'left' }]; }));
+  it('rejects negative sediment waiting to settle', () => rejectsLake((s) => { s.lake.pending = -5; }));
+  it('rejects a delta tally that is not a number', () => rejectsLake((s) => { s.sediment.delta = 'huge'; }));
+});
+
 describe('hostile saves', () => {
   it('rejects a river point outside the valley', () => rejects((s) => { s.x[0] = 1e300; }));
   it('rejects a river point far outside the valley', () => rejects((s) => { s.x[0] = -1e7; }));

@@ -215,6 +215,7 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
   const leveeGain = FLOODPLAIN.leveeRate * sedimentSupply * flood * river.dt;
 
   forCellsNear(grid, x, y, reach, (i, u, t, s) => {
+    if (channel[i] === 4) return; // open water of the valley-end lake
     const lvl = level[s] + (level[s + 1] - level[s]) * t;
     const cv = c[s] + (c[s + 1] - c[s]) * t;
     const r = rate[s] + (rate[s + 1] - rate[s]) * t;
@@ -242,7 +243,7 @@ export function stampChannel(grid, river, settings, year, flood, sedimentSupply 
       veg[i] = 0;
       return;
     }
-    if (channel[i] === 2) return; // lake cells beside the river keep their water
+    if (channel[i] === 2 || channel[i] >= 4) return; // lake and distributary cells beside the river keep their water
     const f = dist - halfW;
     if (!isOuter && f <= innerRamp && height[i] <= base[i] + 0.01) {
       // Inner bank: gentle slope from the bar top up to the floodplain.
@@ -348,7 +349,7 @@ export function stampBraided(grid, river, braid, settings, flood) {
 
   // 2. The belt between threads: gravel bars, planing, fresh gravel.
   forCellsNear(grid, x, y, half, (i, u, t, s) => {
-    if (channel[i] === 2 || edgeOf[i] <= 0) return;
+    if (channel[i] === 2 || channel[i] >= 4 || edgeOf[i] <= 0) return;
     const near = edgeOf[i] !== Infinity;
     const lvl = near ? lvlOf[i] : level[s] + (level[s + 1] - level[s]) * t;
     const k = near ? Math.min(1, edgeOf[i] / rise) : 1;
@@ -373,7 +374,7 @@ export function stampBraided(grid, river, braid, settings, flood) {
 
   // 3. The threads themselves.
   for (const i of touched) {
-    if (edgeOf[i] <= 0) {
+    if (edgeOf[i] <= 0 && channel[i] !== 4) {
       const lvl = lvlOf[i];
       if (channel[i] === 2) lakeLost[i] = 1;
       height[i] = lvl - deepOf[i];

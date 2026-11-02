@@ -5,7 +5,7 @@ import { HELP, PRESETS, RESET_KEYS, RANGES } from '../config.js';
 
 // Which settings the renderer owns (everything else goes to the engine).
 const RENDER_KEYS = new Set([
-  'showParticles', 'showThalweg', 'showTrails', 'showLabels', 'showSediment', 'crossSectionOnClick',
+  'showParticles', 'showThalweg', 'showTrails', 'showLabels', 'showSediment', 'showGraphs', 'crossSectionOnClick',
   'waterOpacity', 'exaggeration', 'timeOfDay', 'fog', 'vegDensity', 'paintRock',
 ]);
 
@@ -65,6 +65,7 @@ export function createControls(settings, actions) {
   add(flow, 'meanDischarge').name('Mean discharge (m³/s)');
   add(flow, 'floodFrequency').name('Floods per 100 yr');
   add(flow, 'floodSize').name('Flood size (× mean)');
+  add(flow, 'climateSwing').name('Climate swings');
   help(flow.add({ flood: () => actions.flood() }, 'flood').name('Trigger flood (F)'), 'flood');
 
   // --- Channel ---
@@ -77,6 +78,8 @@ export function createControls(settings, actions) {
   help(channel.add({ drop: () => actions.dropBase() }, 'drop').name('Drop base level 2 m'), 'dropBase');
   help(channel.add({ slide: () => actions.landslide() }, 'slide').name('Trigger landslide'), 'landslide');
   add(channel, 'sedimentSupply').name('Sediment supply');
+  add(channel, 'tributary').name('Tributary (share of flow)');
+  add(channel, 'valleyEnd', { 'River runs on': 'open', 'Lake (builds a delta)': 'lake' }).name('Valley end (reset)');
 
   // --- Banks ---
   const banks = gui.addFolder('Banks');
@@ -111,6 +114,7 @@ export function createControls(settings, actions) {
   add(show, 'showParticles').name('Helical flow particles');
   add(show, 'showThalweg').name('Thalweg line');
   add(show, 'showSediment').name('Sediment load');
+  add(show, 'showGraphs').name('Graphs over time');
   add(show, 'showTrails').name('History trails');
   add(show, 'showLabels').name('Labels (Explain mode)');
   add(show, 'crossSectionOnClick').name('Cross-section on click');

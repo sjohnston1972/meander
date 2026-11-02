@@ -23,6 +23,9 @@ export const defaults = {
   incisionRate: 0,         // metres per 1000 years the river cuts down (0 = none; leaves terraces when on)
   sedimentSupply: 1,       // how quickly bars and levees build (1 = normal)
   pattern: 'meandering',   // 'meandering' | 'braided' | 'auto' (auto picks from slope, flow and sediment)
+  valleyEnd: 'open',       // 'open' | 'lake': the river runs on out of the valley, or into a lake where it builds a delta
+  tributary: 0,            // flow of a side river joining from one valley wall, as a share of the main river's (0 = none)
+  climateSwing: 0,         // how strongly wet and dry periods come and go over the centuries (0 = a steady climate)
 
   // --- Banks ---
   erodibility: 1,          // bank erodibility multiplier (1 = soft lowland soil)
@@ -53,6 +56,7 @@ export const defaults = {
   showTrails: false,       // where the channel was 50, 100 and 200 years ago
   showLabels: false,       // Explain mode
   showSediment: false,     // colour the river by its sediment load and show the sediment budget
+  showGraphs: false,       // small charts of the river's history (sinuosity, sediment, cutting down, flow)
   crossSectionOnClick: true,
   waterOpacity: 0.85,      // 0 = invisible, 1 = opaque
   exaggeration: 2,         // vertical exaggeration of the landscape
@@ -64,7 +68,7 @@ export const defaults = {
 };
 
 // Settings that need a full reset to take effect (the panel says so).
-export const RESET_KEYS = ['seed', 'startShape', 'quality', 'hardRock'];
+export const RESET_KEYS = ['seed', 'startShape', 'quality', 'hardRock', 'valleyEnd'];
 
 // Slider ranges [min, max, step] for every numeric setting. The control panel
 // and the share-link decoder both use these, so a link can never smuggle in a
@@ -80,6 +84,8 @@ export const RANGES = {
   valleySlope: [0.0001, 0.01, 0.00005],
   incisionRate: [0, 20, 0.5],
   sedimentSupply: [0.2, 3, 0.1],
+  tributary: [0, 1, 0.05],
+  climateSwing: [0, 1, 0.05],
   erodibility: [0.1, 3, 0.05],
   bankHeight: [1.5, 8, 0.1],
   alluviumDepth: [4, 40, 0.5],
@@ -104,6 +110,7 @@ export const CHOICES = {
   startShape: ['wiggle', 'straight', 'sine'],
   quality: ['low', 'medium', 'high'],
   pattern: ['meandering', 'braided', 'auto'],
+  valleyEnd: ['open', 'lake'],
 };
 
 // --- Valley geometry ---
@@ -252,6 +259,62 @@ export const SEDIMENT = {
   maxLoadExcess: 3,        // Auto braiding counts a load at most this many times what comes in from upstream
 };
 
+// --- Lake at the valley's end (valleyEnd: 'lake') ---
+export const LAKE = {
+  length: 1600,            // metres of valley at the downstream end under the lake, on average
+  bay: 700,                // metres further down the valley the shore lies at the valley walls than in the middle
+  shoreWobble: 150,        // metres the shore wanders either side of that
+  shoreScale: 700,         // metres along the shore from one bay to the next point
+  shoreDepth: 3,           // metres of water just off the shore
+  depth: 14,               // metres of water at the far end
+  plain: 0.8,              // metres above the water the delta plain slowly builds up to
+  topset: 0.2,             // metres above the water fresh delta deposits reach
+  shallows: 1.5,           // deposits within this depth of the surface show as sand through the water
+  reach: 140,              // metres: deposits thin out over about this distance in front of a mouth
+  mouthSwing: 55,          // degrees either side the water leaving a mouth swings to, as bars come and go
+  mouthSwingYears: 40,     // years, roughly, for it to swing from one side to the other
+  spread: 260,             // metres around a mouth searched for open water first (further if none is left)
+  finesTrap: 0.5,          // fraction of the fines reaching the lake that settle in it
+  distMinLength: 250,      // metres the delta must reach out into the lake before distributaries form
+  distCount: 2,            // distributaries besides the main river
+  distWidth: 0.35,         // distributary width, in channel widths
+  distDepth: 0.8,          // metres
+  distAngle: [18, 42],     // degrees either side of the river they set off at
+  distShare: 0.25,         // share of the load each distributary carries to its own mouth
+  avulsionYears: 180,      // years between switches of the distributaries, on average
+};
+
+// --- Tributary (a side river joining the main river) ---
+export const TRIB = {
+  place: [0.3, 0.55],      // where along the valley it comes in (fraction of the valley length), picked from the seed
+  widthExponent: 0.5,      // its width = main width x (its share of the flow)^this
+  minWidth: 12,            // metres
+  depthFraction: 0.7,      // its depth as a fraction of the main river's
+  load: 1.6,               // it brings this many times what its own flow can carry at the main river's slope
+  fall: 2.5,               // its fall per metre of its own length, relative to the valley slope (it comes down off the hills)
+  fanWidths: 2.5,          // main channel widths around the junction that its fan covers
+  fanRate: 0.02,           // m/yr the fan builds up
+  fanHeight: 1.2,          // metres above the floodplain the fan reaches at its apex
+  push: 2,                 // m/yr the fan pushes the main river away from the junction, times the tributary's share
+  pushWidths: 4,           // main channel widths below the junction it pushes over
+  migration: 1,            // its migration per unit curvature, relative to the main river's
+};
+
+// --- Climate swings (climateSwing) ---
+export const CLIMATE = {
+  years: 1200,             // years, roughly, from one wet period to the next
+  flow: 0.45,              // mean flow rises and falls by up to this fraction at full swing
+  floods: 0.9,             // flood frequency, likewise
+  sediment: 0.6,           // sediment supply, likewise
+  label: 0.33,             // wetness beyond this (either way) is named a wet or a dry period
+};
+
+// --- History for the graphs ---
+export const STATS = {
+  everyYears: 5,           // years between rows
+  maxRows: 1500,           // when full, every other row is dropped (and rows are kept twice as far apart)
+};
+
 // --- Braided rivers ---
 export const BRAID = {
   autoThreshold: 0.03,     // 'auto' braids when slope x sqrt(mean discharge) x sediment supply is above this
@@ -309,6 +372,7 @@ export const RENDER = {
   rockHardColour: 0xb7a184, // hard rock layers: pale buff cliffs
   rockSoftColour: 0x8a6a55, // soft rock layers: red-brown slopes
   pondColour: 0x3a6e78,    // landslide lake
+  endLakeColour: 0x3b7483, // the lake at the valley's end
   siltColour: 0x8c7650,    // water clouded with fine sediment
   clearColour: 0x8fd3e8,   // Sediment view: carrying less than comes in from upstream
   loadedColour: 0x7a5530,  // Sediment view: carrying more
@@ -402,6 +466,9 @@ export const HELP = {
   dropBase: 'Lower the base level by 2 m now, as if the sea or the trunk river fell. A step (knickpoint) forms at the outlet and works its way upstream, leaving a terrace behind it',
   alluviumDepth: 'Depth of soft river sediment over bedrock. A river that cuts deeper than this meets rock, which erodes more slowly and shows in the terrace walls',
   sedimentSupply: 'How much sand and gravel comes into the valley from upstream (1 = as much as the river can carry), and how quickly bars and levees build. More than the river can carry builds its bed and floodplain up and makes it likelier to braid; less and it scours its bed',
+  valleyEnd: 'Open: the river runs on out of the valley. Lake: the valley ends in a lake, and the river builds a delta out into it with everything it carries. Needs a reset',
+  tributary: 'A side river joins from one of the valley walls. Its flow as a share of the main river\'s (0 = none). It brings a heavy load of gravel, builds a fan where it joins, and pushes the main river aside',
+  climateSwing: 'Wet and dry periods come and go over the centuries: in wet ones the river carries more water, floods more often and brings more sediment. 0 = a steady climate',
   pattern: 'Meandering: one winding channel. Braided: many shallow threads splitting and rejoining across a wide gravel bed. Auto: braids when the valley is steep, the flow strong and the sediment plentiful',
   erodibility: 'How easily banks erode. 1 is soft lowland soil',
   bankHeight: 'Height of the floodplain above the channel bed in metres',
@@ -421,6 +488,7 @@ export const HELP = {
   showThalweg: 'Draw the line of deepest, fastest flow',
   showTrails: 'Show where the channel was 50, 100 and 200 years ago',
   showLabels: 'Explain mode: label features and say how they formed',
+  showGraphs: 'Small charts of the river\'s history: how winding it is, sediment leaving, how far it has cut down, flow and climate',
   showSediment: 'Colour the river by how much sand and gravel it carries (clear blue: less than comes in from upstream; brown: more), and show how much leaves the valley',
   crossSectionOnClick: 'Click a point on the river to see the channel cross-section there',
   waterOpacity: 'How see-through the water is',
@@ -542,6 +610,30 @@ export const EXPLANATIONS = {
   lakedelta: {
     title: 'Lake delta',
     text: 'Where the river runs into still water it slows and drops its sand and gravel, building a delta that grows out into the lake until the lake is full.',
+  },
+  delta: {
+    title: 'Delta',
+    text: 'Where the river runs into the lake it slows and drops everything it carries. The deposits build out into the water, so the shore advances and the river grows longer over its own delta.',
+  },
+  distributary: {
+    title: 'Distributary',
+    text: 'On a delta the river splits into branches that carry water and sediment to different parts of the front. Now and then a branch is abandoned for a new course (an avulsion).',
+  },
+  deltalake: {
+    title: 'Lake',
+    text: 'The valley ends in a lake. Everything the river carries settles here, and the delta slowly fills it in.',
+  },
+  tributary: {
+    title: 'Tributary',
+    text: 'A side river coming down off the hills. It winds and cuts off its own loops like the main river, only smaller.',
+  },
+  confluence: {
+    title: 'Confluence',
+    text: 'Where the tributary joins. Below it the main river carries more water, so it migrates faster and can carry more.',
+  },
+  tributaryfan: {
+    title: 'Tributary fan',
+    text: 'The tributary brings more gravel than the main river can take away at once. It builds a low fan where it joins, which pushes the main river towards the other side of the valley.',
   },
   flood: {
     title: 'Flood',

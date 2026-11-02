@@ -6,7 +6,7 @@
 // { $ta: type, o: byte offset, n: length } into the data block. Infinity and
 // -Infinity (JSON cannot hold them) are written as { $num: 'inf' | '-inf' }.
 // Compression (gzip) is left to the caller, since it is async in browsers.
-import { QUALITY, VALLEY, HILLS, defaults } from '../config.js';
+import { QUALITY, VALLEY, HILLS, LAKE, defaults } from '../config.js';
 import { sanitizeSettings } from '../settings.js';
 
 export const SAVE_VERSION = 1;
@@ -135,7 +135,7 @@ export function validateState(state) {
   if (state.sediment !== undefined) {
     const sd = state.sediment;
     if (!sd || typeof sd !== 'object') fail('sediment');
-    for (const k of ['out', 'exported', 'trapped', 'stored', 'inflow', 'fromWalls', 'fromSlides', 'fromGullies']) {
+    for (const k of ['out', 'exported', 'trapped', 'stored', 'inflow', 'fromWalls', 'fromSlides', 'fromGullies', 'delta']) {
       if (sd[k] !== undefined && !num(sd[k], -1e15, 1e15)) fail(`sediment ${k}`);
     }
   }
@@ -152,6 +152,16 @@ export function validateState(state) {
     if (!num(p?.x, -1, VALLEY.length + 1) || !num(p?.y, -1, VALLEY.width + 1) || !num(p.bed, 0, 1e12) || !num(p.fines, 0, 1e12)) fail('pending sediment');
     if (!tallies.includes(p.from ?? null)) fail('pending sediment');
   }
+
+  // The lake at the valley's end (absent from older saves, null without one).
+  if (state.lake !== undefined && state.lake !== null) {
+    const L = state.lake;
+    if (s.valleyEnd !== 'lake') fail('lake');
+    if (!(L.cells instanceof Int32Array) || L.cells.length > n || L.cells.some((i) => i < 0 || i >= n)) fail('lake cells');
+    if (!(L.distCells instanceof Int32Array) || L.distCells.length > n || L.distCells.some((i) => i < 0 || i >= n)) fail('distributary cells');
+    if (!num(L.pending, 0, 1e12) || !num(L.fines, 0, 1e12) || !num(L.deposited, 0, 1e15) || !num(L.nextSwitch, -1, 1e9)) fail('lake');
+    if (!Array.isArray(L.dists) || L.dists.length > LAKE.distCount || L.dists.some((d) => !num(d?.angle, -Math.PI, Math.PI))) fail('distributaries');
+  } else if (s.valleyEnd === 'lake') fail('lake');
 
   // Valley walls (absent from saves made before landslides and gullies).
   const nums = (v, keys, lo, hi) => keys.every((k) => num(v?.[k], lo, hi));
